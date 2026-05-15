@@ -37,6 +37,18 @@
     overflow-x: hidden;
   }
 
+  body.locked main,
+  body.locked header {
+    filter: blur(8px);
+    pointer-events: none;
+    user-select: none;
+  }
+
+  body.locked #modal-pin {
+    pointer-events: auto;
+    filter: none;
+  }
+
   /* NOISE OVERLAY */
   body::before {
     content: '';
@@ -1012,6 +1024,24 @@
   </div>
 </div>
 
+<!-- PIN Gate -->
+<div class="modal-overlay" id="modal-pin">
+  <div class="modal">
+    <div class="modal-title">ENTER PIN</div>
+    <p style="color:var(--text2);font-size:13px;margin-bottom:16px">
+      This is a simple friend-group PIN gate (not full account login).
+    </p>
+    <div class="form-group">
+      <label>PIN</label>
+      <input type="password" id="pin-input" inputmode="numeric" pattern="[0-9]*" placeholder="****" />
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button class="btn btn-primary" onclick="submitPin()">UNLOCK</button>
+      <span id="pin-error" style="color:var(--accent2);font-size:12px;font-family:'IBM Plex Mono',monospace"></span>
+    </div>
+  </div>
+</div>
+
 <script>
 // =====================
 //   SUPABASE CLIENT
@@ -1027,6 +1057,8 @@ let pendingPlanForLog = null;
 // IMPORTANT: Use the anon public key only. Do NOT paste your service_role key into frontend code.
 const SUPABASE_URL = 'https://vvewurwnkocezvuwstxm.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ2ZXd1cndua29jZXp2dXdzdHhtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg4MDg1ODAsImV4cCI6MjA5NDM4NDU4MH0.h1K-jFB9CoEOiZRvGtHLkXRAJKWQrvQ5fCrM8HtDcAM';
+// Simple PIN gate (friends). Change this PIN before sharing.
+const APP_PIN = '4156';
 
 const SUPABASE_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/supabase-js/2.39.6/supabase.umd.min.js';
 
@@ -1087,13 +1119,18 @@ async function sbSelect(table, query) {
   if (!sbReady) return [];
   let q = sb.from(table).select(query || '*');
   const { data, error } = await q;
-  if (error) { console.error(error); return []; }
+  if (error) {
+    console.error(error);
+    showStatus('DB error: ' + error.message, 'error');
+    return [];
+  }
   return data || [];
 }
 
 async function sbDelete(table, id) {
   if (!sbReady) return;
-  await sb.from(table).delete().eq('id', id);
+  const { error } = await sb.from(table).delete().eq('id', id);
+  if (error) showStatus('DB error: ' + error.message, 'error');
 }
 
 async function sbUpdate(table, id, data) {
@@ -1835,7 +1872,20 @@ async function saveMember() {
 
   if (sbReady) {
     const res = await sbInsert('members', { name, tag });
-    if (!res) return;
+    if (!res) {
+      // Supabase insert can fail (RLS/offline). Save locally so the user doesn't lose data.
+      const localMember = { id: Date.now(), name, tag };
+      ensureClientUid(localMember, 'm');
+      members.push(localMember);
+      saveAppData(true);
+      closeModal('modal-add-member');
+      document.getElementById('member-name').value = '';
+      document.getElementById('member-tag').value = '';
+      renderMembers();
+      initLog();
+      showStatus(`${name} saved locally — will sync when Supabase allows writes.`, 'success');
+      return;
+    }
     members = await sbSelect('members');
   } else {
     const localMember = { id: Date.now(), name, tag };
@@ -1854,8 +1904,17 @@ async function saveMember() {
 
 async function deleteMember(id) {
   if (!confirm('Remove this member?')) return;
-  if (sbReady) { await sbDelete('members', id); members = await sbSelect('members'); }
-  else { members = members.filter(m => m.id !== id); saveAppData(); }
+  if (sbReady) {
+    await sbDelete('members', id);
+    // If delete failed (RLS), still allow local delete so UI matches user intent.
+    members = members.filter(m => m.id !== id);
+    saveAppData(true);
+    const refreshed = await sbSelect('members');
+    if (refreshed.length) members = refreshed;
+  } else {
+    members = members.filter(m => m.id !== id);
+    saveAppData();
+  }
   renderMembers();
   initLog();
 }
@@ -1893,7 +1952,10 @@ function openModal(id) { document.getElementById(id).classList.add('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
 
 document.querySelectorAll('.modal-overlay').forEach(o => {
-  o.addEventListener('click', e => { if (e.target === o) o.classList.remove('open'); });
+  o.addEventListener('click', e => {
+    if (document.body.classList.contains('locked')) return;
+    if (e.target === o) o.classList.remove('open');
+  });
 });
 
 let statusTimer;
@@ -1905,6 +1967,51 @@ function showStatus(msg, type = '') {
   clearTimeout(statusTimer);
   statusTimer = setTimeout(() => { el.style.display = 'none'; }, 3500);
 }
+
+// =====================
+//   PIN GATE
+// =====================
+const PIN_STORAGE_KEY = 'ironlog_pin_ok_v1';
+
+function isUnlocked() {
+  try { return localStorage.getItem(PIN_STORAGE_KEY) === '1'; } catch { return false; }
+}
+
+function setUnlocked(v) {
+  try { localStorage.setItem(PIN_STORAGE_KEY, v ? '1' : '0'); } catch {}
+}
+
+function enforcePinGate() {
+  const locked = !isUnlocked();
+  document.body.classList.toggle('locked', locked);
+  const overlay = document.getElementById('modal-pin');
+  if (!overlay) return;
+  if (locked) {
+    overlay.classList.add('open');
+    setTimeout(() => document.getElementById('pin-input')?.focus(), 50);
+  } else {
+    overlay.classList.remove('open');
+  }
+}
+
+function submitPin() {
+  const input = document.getElementById('pin-input');
+  const err = document.getElementById('pin-error');
+  const val = (input?.value || '').trim();
+  if (!val) { if (err) err.textContent = 'Enter a PIN.'; return; }
+  if (val !== String(APP_PIN)) {
+    if (err) err.textContent = 'Wrong PIN.';
+    if (input) input.value = '';
+    return;
+  }
+  if (err) err.textContent = '';
+  setUnlocked(true);
+  enforcePinGate();
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && document.getElementById('modal-pin')?.classList.contains('open')) submitPin();
+});
 
 async function refreshApp() {
   // Helpful for iOS/Android homescreen installs where browser UI is hidden.
@@ -2450,6 +2557,8 @@ async function syncLocalToSupabase() {
 //   INIT
 // =====================
 window.addEventListener('load', () => {
+  enforcePinGate();
+
   // Set default dates
   const today = dayjs().format('YYYY-MM-DD');
   const tomorrow = dayjs().add(1,'day').format('YYYY-MM-DD');
@@ -2508,8 +2617,35 @@ create unique index if not exists workout_plans_client_uid_ux on public.workout_
 -- Optional: who did each set
 alter table public.log_sets add column if not exists member_id bigint;
 
--- Enable Row Level Security (optional but recommended)
--- Or for quick testing: alter table members enable row level security; create policy "allow all" on members for all using (true);
+-- RLS NOTE:
+-- If RLS is enabled and you are NOT using Supabase Auth, you must add anon policies or writes will fail.
+-- Quick (insecure) policies to make saving work without login:
+alter table public.members enable row level security;
+alter table public.exercises enable row level security;
+alter table public.workout_logs enable row level security;
+alter table public.log_members enable row level security;
+alter table public.log_exercises enable row level security;
+alter table public.log_sets enable row level security;
+alter table public.workout_plans enable row level security;
+alter table public.plan_exercises enable row level security;
+
+create policy "anon_select_members" on public.members for select to anon using (true);
+create policy "anon_insert_members" on public.members for insert to anon with check (true);
+create policy "anon_delete_members" on public.members for delete to anon using (true);
+
+create policy "anon_select_exercises" on public.exercises for select to anon using (true);
+create policy "anon_insert_exercises" on public.exercises for insert to anon with check (true);
+
+create policy "anon_select_workout_logs" on public.workout_logs for select to anon using (true);
+create policy "anon_insert_workout_logs" on public.workout_logs for insert to anon with check (true);
+
+create policy "anon_insert_log_members" on public.log_members for insert to anon with check (true);
+create policy "anon_insert_log_exercises" on public.log_exercises for insert to anon with check (true);
+create policy "anon_insert_log_sets" on public.log_sets for insert to anon with check (true);
+
+create policy "anon_select_workout_plans" on public.workout_plans for select to anon using (true);
+create policy "anon_insert_workout_plans" on public.workout_plans for insert to anon with check (true);
+create policy "anon_insert_plan_exercises" on public.plan_exercises for insert to anon with check (true);
 `);
 </script>
 </body>
