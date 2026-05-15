@@ -70,6 +70,8 @@
     gap: 12px;
   }
 
+  .header-top-actions { display: flex; align-items: center; gap: 8px; }
+
   .logo {
     font-family: 'Bebas Neue', sans-serif;
     font-size: 28px;
@@ -545,6 +547,13 @@
     min-height: 40px;
   }
 
+  .btn-icon {
+    width: 40px;
+    min-height: 40px;
+    padding: 0;
+    justify-content: center;
+  }
+
   .timer-display {
     display: flex;
     align-items: baseline;
@@ -665,7 +674,10 @@
       IRON LOG
       <span>// GYM TRACKER</span>
     </div>
-    <button id="header-timer" class="btn btn-secondary btn-sm" onclick="openModal('modal-timers')" title="Open timers">⏱ TIMERS</button>
+    <div class="header-top-actions">
+      <button class="btn btn-secondary btn-sm btn-icon" onclick="refreshApp()" title="Refresh">🔄</button>
+      <button id="header-timer" class="btn btn-secondary btn-sm" onclick="openModal('modal-timers')" title="Open timers">⏱ TIMERS</button>
+    </div>
   </div>
   <nav>
     <button class="active" onclick="showView('dashboard')">Dashboard</button>
@@ -942,6 +954,7 @@
         </div>
         <div class="timer-controls">
           <button class="btn btn-primary" onclick="toggleRestTimer()" id="rest-toggle-btn">START</button>
+          <button class="btn btn-secondary" onclick="refreshRestTimer()">🔄 RESTART</button>
           <button class="btn btn-secondary" onclick="resetRestTimer()">RESET</button>
           <button class="btn btn-secondary" onclick="addRestSeconds(15)">+15s</button>
           <button class="btn btn-secondary" onclick="addRestSeconds(-15)">-15s</button>
@@ -1865,6 +1878,11 @@ function showStatus(msg, type = '') {
   statusTimer = setTimeout(() => { el.style.display = 'none'; }, 3500);
 }
 
+function refreshApp() {
+  // Helpful for iOS/Android homescreen installs where browser UI is hidden.
+  try { location.reload(); } catch {}
+}
+
 // =====================
 //   TIMERS
 // =====================
@@ -2073,6 +2091,16 @@ function toggleRestTimer() {
     restTimer.endAt = Date.now() + s * 1000;
     ensureTimerLoop();
   }
+  updateTimerUI();
+  saveTimers();
+}
+
+function refreshRestTimer() {
+  // Restart the countdown using the current configured duration.
+  const s = clamp(restTimer.durationSec || 90, 5, 60 * 60);
+  restTimer.running = true;
+  restTimer.endAt = Date.now() + s * 1000;
+  ensureTimerLoop();
   updateTimerUI();
   saveTimers();
 }
