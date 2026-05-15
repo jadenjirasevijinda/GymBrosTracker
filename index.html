@@ -1021,6 +1021,16 @@
         <span id="notif-status" style="align-self:center;color:var(--text3);font-size:11px;font-family:'IBM Plex Mono',monospace"></span>
       </div>
     </div>
+
+    <div class="card" style="margin-top:14px">
+      <div class="card-label">Supabase Status</div>
+      <p id="sb-status" style="color:var(--text2);font-size:12px;font-family:'IBM Plex Mono',monospace;margin-top:8px"></p>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">
+        <button class="btn btn-secondary" onclick="initSupabase(true)">RETRY CONNECT</button>
+        <button class="btn btn-secondary" onclick="testSupabase()">TEST DB</button>
+        <button class="btn btn-secondary" onclick="copyLastDbError()">COPY LAST ERROR</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1049,6 +1059,9 @@
 let sb = null;
 let sbReady = false;
 let pendingPlanForLog = null;
+let lastDbError = '';
+let lastSupabaseLoadError = '';
+let lastSupabaseSourceTried = '';
 
 // =====================
 //   EMBEDDED SUPABASE CONFIG
@@ -1060,14 +1073,49 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 // Simple PIN gate (friends). Change this PIN before sharing.
 const APP_PIN = '4156';
 
-const SUPABASE_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/supabase-js/2.39.6/supabase.umd.min.js';
+// Prefer a locally-hosted copy (recommended for iOS homescreen / captive networks),
+// then fall back to CDN. If you use the local option, download the file from the CDN
+// and save it as `vendor/supabase.umd.min.js` next to this `index.html`.
+const SUPABASE_SOURCES = [
+  'vendor/supabase.umd.min.js',
+  'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.6/dist/umd/supabase.umd.min.js',
+  'https://unpkg.com/@supabase/supabase-js@2.39.6/dist/umd/supabase.umd.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/supabase-js/2.39.6/supabase.umd.min.js'
+];
 
-function loadSupabaseJS(cb) {
-  if (window.supabase) { cb(); return; }
-  const s = document.createElement('script');
-  s.src = SUPABASE_CDN;
-  s.onload = cb;
-  document.head.appendChild(s);
+function loadSupabaseJS() {
+  if (window.supabase) return Promise.resolve();
+  lastSupabaseLoadError = '';
+  lastSupabaseSourceTried = '';
+
+  if (location.protocol === 'file:') {
+    // On iOS homescreen / file:// contexts, remote scripts often fail.
+    lastSupabaseLoadError = 'Opened from file://. Serve this app over http(s) for Supabase to work.';
+  }
+
+  let i = 0;
+  return new Promise((resolve, reject) => {
+    const tryNext = () => {
+      if (i >= SUPABASE_SOURCES.length) {
+        const msg = lastSupabaseLoadError || 'Failed to load Supabase JS (offline/blocked).';
+        showStatus(msg, 'error');
+        reject(new Error(msg));
+        return;
+      }
+      const src = SUPABASE_SOURCES[i++];
+      lastSupabaseSourceTried = src;
+      const s = document.createElement('script');
+      s.src = src;
+      s.async = true;
+      s.onload = () => resolve();
+      s.onerror = () => {
+        lastSupabaseLoadError = `Failed to load Supabase JS from: ${src}`;
+        tryNext();
+      };
+      document.head.appendChild(s);
+    };
+    tryNext();
+  });
 }
 
 function initSupabase(useEmbedded = false) {
@@ -1084,7 +1132,11 @@ function initSupabase(useEmbedded = false) {
     return;
   }
 
-  loadSupabaseJS(() => {
+  // Mark as not-ready until we verify the client lib loads.
+  sbReady = false;
+  updateSupabaseStatusUI();
+
+  loadSupabaseJS().then(() => {
     sb = window.supabase.createClient(url, key);
     sbReady = true;
     showStatus('Supabase connected! Setting up tables...', 'success');
@@ -1094,6 +1146,13 @@ function initSupabase(useEmbedded = false) {
         syncLocalToSupabase().catch(() => {});
       });
     });
+    updateSupabaseStatusUI();
+  }).catch((e) => {
+    sbReady = false;
+    sb = null;
+    lastDbError = '';
+    showStatus(e?.message || 'Supabase not connected.', 'error');
+    updateSupabaseStatusUI();
   });
 }
 
@@ -1111,7 +1170,12 @@ async function setupTables() {
 async function sbInsert(table, data) {
   if (!sbReady) { showStatus('Connect Supabase first!', 'error'); return null; }
   const { data: d, error } = await sb.from(table).insert(data).select();
-  if (error) { showStatus('DB error: ' + error.message, 'error'); return null; }
+  if (error) {
+    lastDbError = error.message || String(error);
+    showStatus('DB error: ' + error.message, 'error');
+    console.error(error);
+    return null;
+  }
   return d;
 }
 
@@ -1121,6 +1185,7 @@ async function sbSelect(table, query) {
   const { data, error } = await q;
   if (error) {
     console.error(error);
+    lastDbError = error.message || String(error);
     showStatus('DB error: ' + error.message, 'error');
     return [];
   }
@@ -1130,7 +1195,11 @@ async function sbSelect(table, query) {
 async function sbDelete(table, id) {
   if (!sbReady) return;
   const { error } = await sb.from(table).delete().eq('id', id);
-  if (error) showStatus('DB error: ' + error.message, 'error');
+  if (error) {
+    lastDbError = error.message || String(error);
+    showStatus('DB error: ' + error.message, 'error');
+    console.error(error);
+  }
 }
 
 async function sbUpdate(table, id, data) {
@@ -2285,6 +2354,48 @@ function updateTimerUI() {
   }
 
   updateNotificationUI();
+  updateSupabaseStatusUI();
+}
+
+function updateSupabaseStatusUI() {
+  const el = document.getElementById('sb-status');
+  if (!el) return;
+  const mode = sbReady ? 'CONNECTED' : 'OFFLINE';
+  const urlShort = (SUPABASE_URL || '').replace(/^https?:\/\//, '');
+  const source = lastSupabaseSourceTried ? ` · JS: ${lastSupabaseSourceTried}` : '';
+  const err = (!sbReady && lastSupabaseLoadError) ? `\n${lastSupabaseLoadError}` : '';
+  const proto = location.protocol ? ` · Origin: ${location.protocol}//` : '';
+  el.textContent = `Status: ${mode} · Project: ${urlShort || '—'}${proto}${source}${err}`;
+}
+
+async function testSupabase() {
+  if (!sbReady) { showStatus('Supabase not connected.', 'error'); return; }
+  try {
+    const { count, error: selErr } = await sb.from('members').select('id', { count: 'exact', head: true });
+    if (selErr) throw selErr;
+    // Try insert (will fail under RLS without policies)
+    const testName = 'DB_TEST_' + dayjs().format('HHmmss');
+    const { data: ins, error: insErr } = await sb.from('members').insert({ name: testName, tag: 'temp' }).select();
+    if (insErr) throw insErr;
+    const newId = ins?.[0]?.id;
+    showStatus(`Supabase OK. members count=${count ?? '—'}. Inserted test member id=${newId}.`, 'success');
+  } catch (e) {
+    const msg = e?.message || String(e);
+    lastDbError = msg;
+    showStatus('Supabase test failed: ' + msg, 'error');
+    console.error(e);
+  }
+  updateSupabaseStatusUI();
+}
+
+async function copyLastDbError() {
+  const text = lastDbError || 'No DB error recorded yet.';
+  try {
+    await navigator.clipboard.writeText(text);
+    showStatus('Copied.', 'success');
+  } catch {
+    showStatus(text, 'error');
+  }
 }
 
 function setRestPreset(sec) {
