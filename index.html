@@ -1057,7 +1057,10 @@ function initSupabase(useEmbedded = false) {
     sbReady = true;
     showStatus('Supabase connected! Setting up tables...', 'success');
     setupTables().then(() => {
-      loadAll();
+      loadAll().then(() => {
+        // If you used the app offline, try to push local data up after connecting.
+        syncLocalToSupabase().catch(() => {});
+      });
     });
   });
 }
@@ -1434,7 +1437,9 @@ async function saveWorkoutLog() {
         (pm.sets || []).map(s => ({ ...s, member_id: pm.member_id }))
       )
     }));
-    workoutLogs.push({ id, date, name, notes, log_exercises: exDetails, log_members: selectedMembers.map(mid => ({ member: members.find(m => m.id === mid) })) });
+    const localLog = { id, date, name, notes, log_exercises: exDetails, log_members: selectedMembers.map(mid => ({ member: members.find(m => m.id === mid) })) };
+    ensureClientUid(localLog, 'wl');
+    workoutLogs.push(localLog);
     saveAppData();
     showStatus('Workout saved (local only — connect Supabase to persist)!', 'success');
     clearLog();
@@ -1552,13 +1557,15 @@ async function savePlan() {
 
   if (!sbReady) {
     const id = Date.now();
-    workoutPlans.push({
+    const localPlan = {
       id, date, name,
       plan_exercises: planSlots.map(s => ({
         sets: s.sets, reps: s.reps, weight: s.weight,
         exercise: exercises.find(e => e.id == s.exercise_id)
       }))
-    });
+    };
+    ensureClientUid(localPlan, 'wp');
+    workoutPlans.push(localPlan);
     saveAppData();
     showStatus('Plan saved (local)!', 'success');
     renderSavedPlans();
@@ -1644,6 +1651,7 @@ async function deletePlan(id) {
     workoutPlans = await sbSelect('workout_plans', '*, plan_exercises(*, exercise:exercises(*))');
   } else {
     workoutPlans = workoutPlans.filter(p => p.id !== id);
+    saveAppData();
   }
   renderSavedPlans();
   renderCalendar();
@@ -1668,14 +1676,25 @@ function loadPlanToLogDirect(planId) {
   const plan = workoutPlans.find(p => p.id === planId);
   if (!plan) return;
   const exs = (plan.plan_exercises || []).sort((a,b) => (a.order_index||0)-(b.order_index||0));
-  logExercises = exs.map(e => ({
-    exercise_id: e.exercise_id || e.exercise?.id,
-    sets: Array.from({ length: parseInt(e.target_sets) || 3 }, () => ({ reps: e.target_reps || '', weight: e.target_weight || '', unit: 'lbs' }))
-  }));
+  if (!selectedMembers.length && members.length) {
+    selectedMembers = members.map(m => m.id);
+  }
+  logExercises = exs.map(e => {
+    const setCount = parseInt(e.target_sets) || 3;
+    const reps = e.target_reps || '';
+    const weight = e.target_weight || '';
+    return {
+      exercise_id: e.exercise_id || e.exercise?.id,
+      per_members: selectedMembers.map(mid => ({
+        member_id: mid,
+        sets: Array.from({ length: setCount }, () => ({ reps, weight, unit: 'lbs' }))
+      }))
+    };
+  });
   document.getElementById('log-date').value = plan.date;
   document.getElementById('log-name').value = plan.name;
   showView('log');
-  renderLogExercises();
+  initLog();
   showStatus('Plan loaded into logger!', 'success');
 }
 
@@ -1700,6 +1719,7 @@ async function saveNewExercise() {
     exercises = await sbSelect('exercises');
   } else {
     newEx = { id: Date.now(), name, category };
+    ensureClientUid(newEx, 'e');
     exercises.push(newEx);
     saveAppData();
   }
@@ -1818,7 +1838,9 @@ async function saveMember() {
     if (!res) return;
     members = await sbSelect('members');
   } else {
-    members.push({ id: Date.now(), name, tag });
+    const localMember = { id: Date.now(), name, tag };
+    ensureClientUid(localMember, 'm');
+    members.push(localMember);
     saveAppData();
   }
 
@@ -1884,9 +1906,25 @@ function showStatus(msg, type = '') {
   statusTimer = setTimeout(() => { el.style.display = 'none'; }, 3500);
 }
 
-function refreshApp() {
+async function refreshApp() {
   // Helpful for iOS/Android homescreen installs where browser UI is hidden.
-  try { location.reload(); } catch {}
+  // If Supabase is connected, try syncing first; always fall back to reloading.
+  const doReload = () => { try { location.reload(); } catch {} };
+
+  if (!sbReady) { doReload(); return; }
+
+  try {
+    const timeoutMs = 4000;
+    await Promise.race([
+      syncLocalToSupabase(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('sync timeout')), timeoutMs))
+    ]);
+    doReload();
+  } catch (e) {
+    // Sync can fail (missing SQL migration, offline, RLS). Don't block refresh.
+    showStatus('Sync skipped/failed — refreshing anyway.', 'error');
+    setTimeout(doReload, 350);
+  }
 }
 
 // =====================
@@ -1894,6 +1932,8 @@ function refreshApp() {
 // =====================
 const TIMER_STORAGE_KEY = 'ironlog_timers_v1';
 const APP_STORAGE_KEY = 'ironlog_appdata_v1';
+const DEVICE_STORAGE_KEY = 'ironlog_device_v1';
+const SYNC_STORAGE_KEY = 'ironlog_sync_v1';
 
 let restTimer = { durationSec: 90, running: false, endAt: null };
 let workoutTimer = { elapsedMs: 0, running: false, startAt: null };
@@ -1938,8 +1978,8 @@ function loadTimers() {
   } catch {}
 }
 
-function saveAppData() {
-  if (sbReady) return; // Supabase is source of truth when connected
+function saveAppData(force = false) {
+  if (sbReady && !force) return; // Supabase is source of truth when connected
   try {
     localStorage.setItem(APP_STORAGE_KEY, JSON.stringify({
       members,
@@ -1951,7 +1991,7 @@ function saveAppData() {
 }
 
 function loadAppData() {
-  if (sbReady) return;
+  // Always allow reading local cache (used for offline→cloud sync too)
   try {
     const raw = localStorage.getItem(APP_STORAGE_KEY);
     if (!raw) return;
@@ -1960,7 +2000,49 @@ function loadAppData() {
     if (Array.isArray(parsed?.exercises)) exercises = parsed.exercises;
     if (Array.isArray(parsed?.workoutLogs)) workoutLogs = parsed.workoutLogs;
     if (Array.isArray(parsed?.workoutPlans)) workoutPlans = parsed.workoutPlans;
+
+    // Backfill client_uids for older cached data
+    members.forEach(m => ensureClientUid(m, 'm'));
+    exercises.forEach(e => ensureClientUid(e, 'e'));
+    workoutLogs.forEach(w => ensureClientUid(w, 'wl'));
+    workoutPlans.forEach(p => ensureClientUid(p, 'wp'));
   } catch {}
+}
+
+function getDeviceId() {
+  try {
+    const raw = localStorage.getItem(DEVICE_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed?.id) return parsed.id;
+    }
+  } catch {}
+
+  const id = (crypto?.randomUUID?.() || `dev_${Math.random().toString(16).slice(2)}_${Date.now()}`);
+  try { localStorage.setItem(DEVICE_STORAGE_KEY, JSON.stringify({ id })); } catch {}
+  return id;
+}
+
+function ensureClientUid(obj, prefix) {
+  if (!obj) return null;
+  if (obj.client_uid) return obj.client_uid;
+  const deviceId = getDeviceId();
+  const uid = (crypto?.randomUUID?.() || `${prefix}_${deviceId}_${Math.random().toString(16).slice(2)}_${Date.now()}`);
+  obj.client_uid = `${prefix}_${uid}`;
+  return obj.client_uid;
+}
+
+function getSyncState() {
+  try {
+    const raw = localStorage.getItem(SYNC_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function setSyncState(next) {
+  try { localStorage.setItem(SYNC_STORAGE_KEY, JSON.stringify(next || {})); } catch {}
 }
 
 function notificationPermission() {
@@ -2181,6 +2263,190 @@ function toggleQuickTimer() {
 }
 
 // =====================
+//   OFFLINE → SUPABASE SYNC
+// =====================
+async function syncLocalToSupabase() {
+  if (!sbReady) return;
+
+  // Pull any offline cache (even while connected) so we can upload it.
+  loadAppData();
+
+  const hasLocal = (members?.length || exercises?.length || workoutLogs?.length || workoutPlans?.length);
+  if (!hasLocal) return;
+
+  showStatus('Syncing local data to Supabase...', 'success');
+
+  // Ensure client_uids exist
+  members.forEach(m => ensureClientUid(m, 'm'));
+  exercises.forEach(e => ensureClientUid(e, 'e'));
+  workoutLogs.forEach(w => ensureClientUid(w, 'wl'));
+  workoutPlans.forEach(p => ensureClientUid(p, 'wp'));
+  saveAppData(true);
+
+  // Helper: attempt an upsert and detect missing client_uid columns.
+  async function upsertByClientUid(table, rows) {
+    if (!rows.length) return [];
+    const { data, error } = await sb.from(table).upsert(rows, { onConflict: 'client_uid' }).select();
+    if (error) {
+      const msg = String(error.message || '');
+      if (/client_uid/i.test(msg) && /(column|schema cache|on conflict)/i.test(msg)) {
+        showStatus(`Supabase needs a client_uid column on ${table}. Run the SQL migration.`, 'error');
+      } else {
+        showStatus('DB error: ' + error.message, 'error');
+      }
+      throw error;
+    }
+    return data || [];
+  }
+
+  // Upsert members/exercises first so we can map ids
+  const remoteMembers = await upsertByClientUid('members', members.map(m => ({ client_uid: m.client_uid, name: m.name, tag: m.tag || null })));
+  const remoteExercises = await upsertByClientUid('exercises', exercises.map(e => ({ client_uid: e.client_uid, name: e.name, category: e.category || 'other' })));
+
+  const memberIdByUid = new Map(remoteMembers.map(m => [m.client_uid, m.id]));
+  const exerciseIdByUid = new Map(remoteExercises.map(e => [e.client_uid, e.id]));
+
+  // Also allow name-based mapping fallback (for existing rows without client_uid)
+  remoteMembers.forEach(m => { if (m?.name) memberIdByUid.set(`name:${m.name.toLowerCase()}`, m.id); });
+  remoteExercises.forEach(e => { if (e?.name) exerciseIdByUid.set(`name:${e.name.toLowerCase()}`, e.id); });
+
+  async function insertLogSetWithOptionalMember(payload) {
+    const withMember = { ...payload };
+    const withoutMember = { ...payload };
+    delete withoutMember.member_id;
+    const { error: e1 } = await sb.from('log_sets').insert(withMember);
+    if (!e1) return true;
+    const msg = String(e1.message || '');
+    if (payload.member_id != null && /member_id/i.test(msg) && /(column|schema cache)/i.test(msg)) {
+      const { error: e2 } = await sb.from('log_sets').insert(withoutMember);
+      if (!e2) return true;
+      throw e2;
+    }
+    throw e1;
+  }
+
+  // Sync workout logs (treat each log as atomic; skip if already exists)
+  for (const w of workoutLogs) {
+    if (!w?.date) continue;
+    ensureClientUid(w, 'wl');
+
+    const { data: existing, error: exErr } = await sb.from('workout_logs').select('id').eq('client_uid', w.client_uid).limit(1);
+    if (exErr) {
+      const msg = String(exErr.message || '');
+      if (/client_uid/i.test(msg) && /(column|schema cache)/i.test(msg)) {
+        showStatus('Supabase needs client_uid on workout_logs. Run the SQL migration.', 'error');
+        throw exErr;
+      }
+      throw exErr;
+    }
+    if (existing && existing.length) continue;
+
+    const { data: insertedLogs, error: insErr } = await sb.from('workout_logs').insert({
+      client_uid: w.client_uid,
+      date: w.date,
+      name: w.name || null,
+      notes: w.notes || null
+    }).select();
+    if (insErr) throw insErr;
+    const logId = insertedLogs?.[0]?.id;
+    if (!logId) continue;
+
+    // Members present
+    const localMemberIds = (w.log_members || []).map(lm => lm.member_id || lm.member?.id).filter(Boolean);
+    for (const localMid of localMemberIds) {
+      const localM = members.find(mm => mm.id == localMid);
+      let memberId = localM?.client_uid ? (memberIdByUid.get(localM.client_uid) || null) : null;
+      if (!memberId && localM?.name) memberId = memberIdByUid.get(`name:${localM.name.toLowerCase()}`) || null;
+      if (!memberId) continue;
+      await sb.from('log_members').insert({ log_id: logId, member_id: memberId });
+    }
+
+    // Exercises + sets
+    for (const ex of (w.log_exercises || [])) {
+      const localExerciseId = ex.exercise_id || ex.exercise?.id;
+      const localEx = exercises.find(ee => ee.id == localExerciseId) || ex.exercise;
+      let exerciseId = null;
+      if (localEx?.client_uid) exerciseId = exerciseIdByUid.get(localEx.client_uid);
+      if (!exerciseId && localEx?.name) exerciseId = exerciseIdByUid.get(`name:${localEx.name.toLowerCase()}`);
+      if (!exerciseId) continue;
+
+      const { data: exRows, error: exInsErr } = await sb.from('log_exercises').insert({ log_id: logId, exercise_id: exerciseId }).select();
+      if (exInsErr) throw exInsErr;
+      const logExerciseId = exRows?.[0]?.id;
+      if (!logExerciseId) continue;
+
+      for (const s of (ex.log_sets || [])) {
+        if (!s.reps && !s.weight) continue;
+        // Set owner
+        let setMemberId = null;
+        if (s.member_id != null) {
+          const localM = members.find(mm => mm.id == s.member_id) || (typeof s.member_id === 'string' ? members.find(mm => mm.client_uid === s.member_id) : null);
+          if (localM?.client_uid) setMemberId = memberIdByUid.get(localM.client_uid) || null;
+          if (!setMemberId && localM?.name) setMemberId = memberIdByUid.get(`name:${localM.name.toLowerCase()}`) || null;
+        }
+        await insertLogSetWithOptionalMember({
+          log_exercise_id: logExerciseId,
+          reps: s.reps || 0,
+          weight: s.weight || 0,
+          unit: s.unit || 'lbs',
+          member_id: setMemberId
+        });
+      }
+    }
+  }
+
+  // Sync workout plans (atomic; skip if already exists)
+  for (const p of workoutPlans) {
+    if (!p?.date) continue;
+    ensureClientUid(p, 'wp');
+
+    const { data: existing, error: exErr } = await sb.from('workout_plans').select('id').eq('client_uid', p.client_uid).limit(1);
+    if (exErr) {
+      const msg = String(exErr.message || '');
+      if (/client_uid/i.test(msg) && /(column|schema cache)/i.test(msg)) {
+        showStatus('Supabase needs client_uid on workout_plans. Run the SQL migration.', 'error');
+        throw exErr;
+      }
+      throw exErr;
+    }
+    if (existing && existing.length) continue;
+
+    const { data: insertedPlans, error: insErr } = await sb.from('workout_plans').insert({
+      client_uid: p.client_uid,
+      date: p.date,
+      name: p.name || null
+    }).select();
+    if (insErr) throw insErr;
+    const planId = insertedPlans?.[0]?.id;
+    if (!planId) continue;
+
+    const exs = (p.plan_exercises || []);
+    let order = 0;
+    for (const pe of exs) {
+      const localExerciseId = pe.exercise_id || pe.exercise?.id;
+      const localEx = exercises.find(ee => ee.id == localExerciseId) || pe.exercise;
+      let exerciseId = null;
+      if (localEx?.client_uid) exerciseId = exerciseIdByUid.get(localEx.client_uid);
+      if (!exerciseId && localEx?.name) exerciseId = exerciseIdByUid.get(`name:${localEx.name.toLowerCase()}`);
+      if (!exerciseId) continue;
+
+      await sb.from('plan_exercises').insert({
+        plan_id: planId,
+        exercise_id: exerciseId,
+        target_sets: pe.sets ?? pe.target_sets ?? null,
+        target_reps: pe.reps ?? pe.target_reps ?? null,
+        target_weight: pe.weight ?? pe.target_weight ?? null,
+        order_index: pe.order_index ?? order++
+      });
+    }
+  }
+
+  // Finally refresh local UI from Supabase
+  await loadAll();
+  showStatus('Sync complete.', 'success');
+}
+
+// =====================
 //   INIT
 // =====================
 window.addEventListener('load', () => {
@@ -2228,6 +2494,19 @@ create table workout_logs (id bigint generated always as identity primary key, d
 create table log_members (id bigint generated always as identity primary key, log_id bigint references workout_logs(id), member_id bigint references members(id));
 create table log_exercises (id bigint generated always as identity primary key, log_id bigint references workout_logs(id), exercise_id bigint references exercises(id));
 create table log_sets (id bigint generated always as identity primary key, log_exercise_id bigint references log_exercises(id), reps int, weight numeric, unit text default 'lbs');
+
+-- Offline → cloud sync support
+alter table public.members add column if not exists client_uid text;
+create unique index if not exists members_client_uid_ux on public.members (client_uid);
+alter table public.exercises add column if not exists client_uid text;
+create unique index if not exists exercises_client_uid_ux on public.exercises (client_uid);
+alter table public.workout_logs add column if not exists client_uid text;
+create unique index if not exists workout_logs_client_uid_ux on public.workout_logs (client_uid);
+alter table public.workout_plans add column if not exists client_uid text;
+create unique index if not exists workout_plans_client_uid_ux on public.workout_plans (client_uid);
+
+-- Optional: who did each set
+alter table public.log_sets add column if not exists member_id bigint;
 
 -- Enable Row Level Security (optional but recommended)
 -- Or for quick testing: alter table members enable row level security; create policy "allow all" on members for all using (true);
