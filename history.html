@@ -8,7 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="assets/styles.css">
 </head>
-<body data-view="dashboard">
+<body data-view="history">
 
 <!-- Header -->
 <header>
@@ -33,57 +33,18 @@
 
 <main>
 
-<div class="view active" id="view-dashboard">
+<div class="view" id="view-history">
     <div class="section-header">
       <div class="section-title">
-        <span>// OVERVIEW</span>
-        DASHBOARD
+        <span>// ALL TIME</span>
+        WORKOUT HISTORY
       </div>
-      <button class="btn btn-primary" onclick="showView('log')">+ LOG TODAY</button>
-    </div>
-
-    <div class="grid-3" style="margin-bottom:20px">
-      <div class="card">
-        <div class="card-label">This Week</div>
-        <div class="card-value" id="stat-week">0</div>
-        <div class="card-sub">sessions logged</div>
-      </div>
-      <div class="card">
-        <div class="card-label">Total Sessions</div>
-        <div class="card-value" id="stat-total">0</div>
-        <div class="card-sub">all time</div>
-      </div>
-      <div class="card">
-        <div class="card-label">Active Members</div>
-        <div class="card-value" id="stat-members">0</div>
-        <div class="card-sub">in your crew</div>
+      <div style="display:flex;gap:8px">
+        <input type="text" id="history-search" placeholder="Search..." style="width:180px;padding:8px 12px;font-size:13px" oninput="filterHistory()" />
       </div>
     </div>
-
-    <!-- Calendar -->
-    <div class="card" style="margin-bottom:20px">
-      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px">
-        <div class="card-label" id="cal-month-label">MAY 2026</div>
-        <div style="display:flex;gap:8px">
-          <button class="btn btn-secondary btn-sm" onclick="changeMonth(-1)">◀</button>
-          <button class="btn btn-secondary btn-sm" onclick="changeMonth(1)">▶</button>
-        </div>
-      </div>
-      <div class="calendar-grid" id="calendar-grid"></div>
-      <div style="display:flex;gap:16px;margin-top:12px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text3)">
-        <span><span style="color:var(--accent)">■</span> Logged workout</span>
-        <span><span style="color:var(--blue)">■</span> Planned</span>
-        <span><span style="color:var(--text2)">■</span> Today</span>
-      </div>
-    </div>
-
-    <!-- Recent -->
-    <div class="section-title" style="font-size:28px;margin-bottom:16px">
-      <span>// RECENT SESSIONS</span>
-      LAST 5 WORKOUTS
-    </div>
-    <div id="recent-list">
-      <div class="empty-state"><div class="icon">🏋️</div><p>No workouts logged yet.</p></div>
+    <div id="history-list">
+      <div class="empty-state"><div class="icon">📓</div><p>No history yet.</p></div>
     </div>
   </div>
 

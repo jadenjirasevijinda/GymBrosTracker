@@ -8,7 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="assets/styles.css">
 </head>
-<body data-view="dashboard">
+<body data-view="log">
 
 <!-- Header -->
 <header>
@@ -33,57 +33,49 @@
 
 <main>
 
-<div class="view active" id="view-dashboard">
+<div class="view" id="view-log">
     <div class="section-header">
       <div class="section-title">
-        <span>// OVERVIEW</span>
-        DASHBOARD
-      </div>
-      <button class="btn btn-primary" onclick="showView('log')">+ LOG TODAY</button>
-    </div>
-
-    <div class="grid-3" style="margin-bottom:20px">
-      <div class="card">
-        <div class="card-label">This Week</div>
-        <div class="card-value" id="stat-week">0</div>
-        <div class="card-sub">sessions logged</div>
-      </div>
-      <div class="card">
-        <div class="card-label">Total Sessions</div>
-        <div class="card-value" id="stat-total">0</div>
-        <div class="card-sub">all time</div>
-      </div>
-      <div class="card">
-        <div class="card-label">Active Members</div>
-        <div class="card-value" id="stat-members">0</div>
-        <div class="card-sub">in your crew</div>
+        <span>// RECORD SESSION</span>
+        LOG WORKOUT
       </div>
     </div>
 
-    <!-- Calendar -->
-    <div class="card" style="margin-bottom:20px">
-      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px">
-        <div class="card-label" id="cal-month-label">MAY 2026</div>
-        <div style="display:flex;gap:8px">
-          <button class="btn btn-secondary btn-sm" onclick="changeMonth(-1)">◀</button>
-          <button class="btn btn-secondary btn-sm" onclick="changeMonth(1)">▶</button>
-        </div>
+    <div class="grid-2" style="margin-bottom:20px">
+      <div class="form-group" style="margin-bottom:0">
+        <label>Date</label>
+        <input type="date" id="log-date" />
       </div>
-      <div class="calendar-grid" id="calendar-grid"></div>
-      <div style="display:flex;gap:16px;margin-top:12px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text3)">
-        <span><span style="color:var(--accent)">■</span> Logged workout</span>
-        <span><span style="color:var(--blue)">■</span> Planned</span>
-        <span><span style="color:var(--text2)">■</span> Today</span>
+      <div class="form-group" style="margin-bottom:0">
+        <label>Session Name / Type</label>
+        <input type="text" id="log-name" placeholder="e.g. Upper Body, Leg Day, Push..." />
       </div>
     </div>
 
-    <!-- Recent -->
-    <div class="section-title" style="font-size:28px;margin-bottom:16px">
-      <span>// RECENT SESSIONS</span>
-      LAST 5 WORKOUTS
+    <div class="form-group">
+      <label>Who's Here</label>
+      <div class="member-chips" id="log-members-chips"></div>
     </div>
-    <div id="recent-list">
-      <div class="empty-state"><div class="icon">🏋️</div><p>No workouts logged yet.</p></div>
+
+    <hr class="divider">
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <div class="section-title" style="font-size:24px">Exercises</div>
+      <button class="btn btn-secondary btn-sm" onclick="addLogExercise()">+ ADD EXERCISE</button>
+    </div>
+
+    <div id="log-exercises"></div>
+
+    <hr class="divider">
+
+    <div class="form-group">
+      <label>Notes</label>
+      <textarea id="log-notes" rows="3" placeholder="How'd it go? PR? Anything notable..."></textarea>
+    </div>
+
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-primary" onclick="saveWorkoutLog()">💾 SAVE SESSION</button>
+      <button class="btn btn-secondary" onclick="clearLog()">CLEAR</button>
     </div>
   </div>
 
