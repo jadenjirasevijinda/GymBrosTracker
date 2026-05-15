@@ -1435,6 +1435,7 @@ async function saveWorkoutLog() {
       )
     }));
     workoutLogs.push({ id, date, name, notes, log_exercises: exDetails, log_members: selectedMembers.map(mid => ({ member: members.find(m => m.id === mid) })) });
+    saveAppData();
     showStatus('Workout saved (local only — connect Supabase to persist)!', 'success');
     clearLog();
     renderDashboard();
@@ -1558,6 +1559,7 @@ async function savePlan() {
         exercise: exercises.find(e => e.id == s.exercise_id)
       }))
     });
+    saveAppData();
     showStatus('Plan saved (local)!', 'success');
     renderSavedPlans();
     renderCalendar();
@@ -1699,6 +1701,7 @@ async function saveNewExercise() {
   } else {
     newEx = { id: Date.now(), name, category };
     exercises.push(newEx);
+    saveAppData();
   }
 
   document.getElementById('new-ex-name').value = '';
@@ -1816,20 +1819,23 @@ async function saveMember() {
     members = await sbSelect('members');
   } else {
     members.push({ id: Date.now(), name, tag });
+    saveAppData();
   }
 
   closeModal('modal-add-member');
   document.getElementById('member-name').value = '';
   document.getElementById('member-tag').value = '';
   renderMembers();
+  initLog();
   showStatus(`${name} added!`, 'success');
 }
 
 async function deleteMember(id) {
   if (!confirm('Remove this member?')) return;
   if (sbReady) { await sbDelete('members', id); members = await sbSelect('members'); }
-  else { members = members.filter(m => m.id !== id); }
+  else { members = members.filter(m => m.id !== id); saveAppData(); }
   renderMembers();
+  initLog();
 }
 
 // =====================
@@ -1887,6 +1893,7 @@ function refreshApp() {
 //   TIMERS
 // =====================
 const TIMER_STORAGE_KEY = 'ironlog_timers_v1';
+const APP_STORAGE_KEY = 'ironlog_appdata_v1';
 
 let restTimer = { durationSec: 90, running: false, endAt: null };
 let workoutTimer = { elapsedMs: 0, running: false, startAt: null };
@@ -1928,6 +1935,31 @@ function loadTimers() {
     if (parsed?.restTimer) restTimer = { ...restTimer, ...parsed.restTimer };
     if (parsed?.workoutTimer) workoutTimer = { ...workoutTimer, ...parsed.workoutTimer };
     if (typeof parsed?.notificationsEnabled === 'boolean') notificationsEnabled = parsed.notificationsEnabled;
+  } catch {}
+}
+
+function saveAppData() {
+  if (sbReady) return; // Supabase is source of truth when connected
+  try {
+    localStorage.setItem(APP_STORAGE_KEY, JSON.stringify({
+      members,
+      exercises,
+      workoutLogs,
+      workoutPlans
+    }));
+  } catch {}
+}
+
+function loadAppData() {
+  if (sbReady) return;
+  try {
+    const raw = localStorage.getItem(APP_STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed?.members)) members = parsed.members;
+    if (Array.isArray(parsed?.exercises)) exercises = parsed.exercises;
+    if (Array.isArray(parsed?.workoutLogs)) workoutLogs = parsed.workoutLogs;
+    if (Array.isArray(parsed?.workoutPlans)) workoutPlans = parsed.workoutPlans;
   } catch {}
 }
 
@@ -2165,13 +2197,15 @@ window.addEventListener('load', () => {
   }
 
   // Load without Supabase (demo mode)
-  exercises = DEFAULT_EXERCISES.map((e, i) => ({ ...e, id: i + 1 }));
+  loadAppData();
+  if (!exercises.length) exercises = DEFAULT_EXERCISES.map((e, i) => ({ ...e, id: i + 1 }));
   addPlanSlot(); // start with one slot
   renderPlanSlots();
   renderDashboard();
   renderCalendar();
   initLog();
   renderSavedPlans();
+  renderMembers();
 
   loadTimers();
   // If timers were running, keep them running after reload.
