@@ -1,0 +1,1598 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IRON LOG — Gym Tracker</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dayjs/1.11.10/dayjs.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0d0d0d;
+    --surface: #161616;
+    --surface2: #1e1e1e;
+    --surface3: #272727;
+    --border: #2a2a2a;
+    --border2: #333;
+    --accent: #e8ff47;
+    --accent2: #ff4747;
+    --text: #f0f0f0;
+    --text2: #888;
+    --text3: #555;
+    --green: #47ff8e;
+    --blue: #47b8ff;
+    --orange: #ff8c47;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'IBM Plex Sans', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* NOISE OVERLAY */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 9999;
+    opacity: 0.4;
+  }
+
+  /* HEADER */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 32px;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+    z-index: 100;
+  }
+
+  .logo {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 28px;
+    letter-spacing: 3px;
+    color: var(--accent);
+  }
+
+  .logo span { color: var(--text2); font-size: 14px; letter-spacing: 1px; font-family: 'IBM Plex Mono', monospace; display: block; }
+
+  nav { display: flex; gap: 4px; }
+
+  nav button {
+    background: none;
+    border: 1px solid transparent;
+    color: var(--text2);
+    padding: 8px 16px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 1px;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-transform: uppercase;
+  }
+
+  nav button:hover { color: var(--text); border-color: var(--border2); }
+  nav button.active { color: var(--accent); border-color: var(--accent); background: rgba(232,255,71,0.05); }
+
+  /* MAIN */
+  main { max-width: 1100px; margin: 0 auto; padding: 32px; }
+
+  /* VIEWS */
+  .view { display: none; }
+  .view.active { display: block; }
+
+  /* SECTION HEADER */
+  .section-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    margin-bottom: 28px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 42px;
+    letter-spacing: 2px;
+    line-height: 1;
+  }
+
+  .section-title span {
+    display: block;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 2px;
+    color: var(--text2);
+    font-weight: 400;
+    margin-bottom: 4px;
+  }
+
+  /* BUTTONS */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    border: none;
+    cursor: pointer;
+    transition: all 0.15s;
+    border-radius: 3px;
+  }
+
+  .btn-primary { background: var(--accent); color: #000; }
+  .btn-primary:hover { background: #d4eb3a; transform: translateY(-1px); }
+
+  .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border2); }
+  .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+
+  .btn-danger { background: transparent; color: var(--accent2); border: 1px solid var(--accent2); }
+  .btn-danger:hover { background: var(--accent2); color: #fff; }
+
+  .btn-green { background: var(--green); color: #000; }
+  .btn-green:hover { background: #36e67a; }
+
+  .btn-sm { padding: 6px 12px; font-size: 11px; }
+
+  /* GRID */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+
+  /* CARDS */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 20px;
+    transition: border-color 0.15s;
+  }
+
+  .card:hover { border-color: var(--border2); }
+
+  .card-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: var(--text3);
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+
+  .card-value {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 36px;
+    letter-spacing: 1px;
+    color: var(--accent);
+  }
+
+  .card-sub { font-size: 12px; color: var(--text2); margin-top: 4px; font-family: 'IBM Plex Mono', monospace; }
+
+  /* TABLE */
+  .table-wrap { overflow-x: auto; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  th {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--text3);
+    padding: 10px 14px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+
+  td {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--surface2); }
+
+  /* FORM */
+  .form-group { margin-bottom: 16px; }
+  .form-group label {
+    display: block;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 1px;
+    color: var(--text2);
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+
+  input, select, textarea {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    color: var(--text);
+    padding: 10px 14px;
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 14px;
+    border-radius: 3px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+
+  input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+
+  select option { background: var(--surface2); }
+
+  /* MODAL */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+
+  .modal-overlay.open { display: flex; }
+
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: 8px;
+    padding: 28px;
+    width: 100%;
+    max-width: 560px;
+    max-height: 85vh;
+    overflow-y: auto;
+    position: relative;
+    animation: modalIn 0.2s ease;
+  }
+
+  @keyframes modalIn {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .modal-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 28px;
+    letter-spacing: 2px;
+    margin-bottom: 20px;
+    color: var(--accent);
+  }
+
+  .modal-close {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    background: none;
+    border: none;
+    color: var(--text2);
+    font-size: 20px;
+    cursor: pointer;
+    padding: 4px 8px;
+    line-height: 1;
+  }
+
+  .modal-close:hover { color: var(--text); }
+
+  /* TAG BADGE */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 8px;
+    border-radius: 2px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .badge-green { background: rgba(71,255,142,0.12); color: var(--green); }
+  .badge-yellow { background: rgba(232,255,71,0.12); color: var(--accent); }
+  .badge-red { background: rgba(255,71,71,0.12); color: var(--accent2); }
+  .badge-blue { background: rgba(71,184,255,0.12); color: var(--blue); }
+  .badge-gray { background: var(--surface3); color: var(--text2); }
+
+  /* WORKOUT PLAN BUILDER */
+  .exercise-slot {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    display: grid;
+    grid-template-columns: 28px 1fr auto auto auto;
+    align-items: center;
+    gap: 10px;
+    transition: border-color 0.15s;
+  }
+
+  .exercise-slot:hover { border-color: var(--border2); }
+
+  .slot-num {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 20px;
+    color: var(--text3);
+    text-align: center;
+  }
+
+  .slot-inputs { display: flex; gap: 8px; align-items: center; }
+
+  .slot-inputs select, .slot-inputs input {
+    background: var(--surface3);
+    border-color: transparent;
+    font-size: 13px;
+    padding: 7px 10px;
+  }
+
+  .slot-inputs select { flex: 1; }
+  .slot-inputs input { width: 80px; }
+
+  .slot-remove {
+    background: none;
+    border: none;
+    color: var(--text3);
+    cursor: pointer;
+    font-size: 16px;
+    padding: 4px;
+    transition: color 0.15s;
+  }
+
+  .slot-remove:hover { color: var(--accent2); }
+
+  /* SET LOGGER */
+  .set-row {
+    display: grid;
+    grid-template-columns: 28px 1fr 1fr 1fr auto;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .set-row:last-child { border-bottom: none; }
+
+  .set-num {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: var(--text3);
+    text-align: center;
+  }
+
+  /* WORKOUT LOG ACCORDION */
+  .log-entry {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 10px;
+    overflow: hidden;
+  }
+
+  .log-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  .log-header:hover { background: var(--surface2); }
+
+  .log-date {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 18px;
+    letter-spacing: 1px;
+  }
+
+  .log-body {
+    display: none;
+    padding: 0 20px 16px;
+    border-top: 1px solid var(--border);
+  }
+
+  .log-body.open { display: block; }
+
+  /* EMPTY STATE */
+  .empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text3);
+  }
+
+  .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+  .empty-state p { font-family: 'IBM Plex Mono', monospace; font-size: 13px; }
+
+  /* CALENDAR */
+  .calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 4px;
+    margin-top: 16px;
+  }
+
+  .cal-day-name {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--text3);
+    text-align: center;
+    padding: 4px;
+    letter-spacing: 1px;
+  }
+
+  .cal-day {
+    aspect-ratio: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s;
+    position: relative;
+    font-family: 'IBM Plex Mono', monospace;
+    color: var(--text2);
+  }
+
+  .cal-day:hover { background: var(--surface2); }
+  .cal-day.empty { cursor: default; }
+  .cal-day.has-workout { background: rgba(232,255,71,0.1); color: var(--accent); font-weight: 600; }
+  .cal-day.has-workout::after { content: ''; position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%); width: 4px; height: 4px; background: var(--accent); border-radius: 50%; }
+  .cal-day.today { border: 1px solid var(--accent); color: var(--accent); }
+  .cal-day.has-planned { background: rgba(71,184,255,0.08); color: var(--blue); }
+
+  /* STATUS bar */
+  #status-bar {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    border-radius: 6px;
+    padding: 10px 16px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: var(--text);
+    display: none;
+    z-index: 9000;
+    max-width: 320px;
+    animation: slideIn 0.2s ease;
+  }
+
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  #status-bar.success { border-color: var(--green); color: var(--green); }
+  #status-bar.error { border-color: var(--accent2); color: var(--accent2); }
+
+  /* INLINE add exercise */
+  #new-exercise-inline {
+    display: none;
+    background: var(--surface2);
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    padding: 14px;
+    margin-top: 10px;
+  }
+
+  /* Member chips */
+  .member-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+
+  .member-chip {
+    padding: 6px 14px;
+    border-radius: 20px;
+    border: 1px solid var(--border2);
+    font-size: 12px;
+    font-family: 'IBM Plex Mono', monospace;
+    cursor: pointer;
+    transition: all 0.15s;
+    background: var(--surface2);
+    color: var(--text2);
+  }
+
+  .member-chip.selected { border-color: var(--accent); color: var(--accent); background: rgba(232,255,71,0.08); }
+
+  /* DIVIDER */
+  .divider { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+
+  /* Responsive */
+  @media (max-width: 700px) {
+    header { padding: 14px 16px; }
+    main { padding: 20px 16px; }
+    .grid-2, .grid-3 { grid-template-columns: 1fr; }
+    nav button { padding: 6px 10px; font-size: 10px; }
+    .exercise-slot { grid-template-columns: 24px 1fr auto; }
+    .slot-inputs { flex-wrap: wrap; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+  <div class="logo">
+    IRON LOG
+    <span>// GYM TRACKER</span>
+  </div>
+  <nav>
+    <button class="active" onclick="showView('dashboard')">Dashboard</button>
+    <button onclick="showView('log')">Log Workout</button>
+    <button onclick="showView('plan')">Plan Workout</button>
+    <button onclick="showView('history')">History</button>
+    <button onclick="showView('members')">Members</button>
+  </nav>
+</header>
+
+<main>
+
+  <!-- DASHBOARD -->
+  <div class="view active" id="view-dashboard">
+    <div class="section-header">
+      <div class="section-title">
+        <span>// OVERVIEW</span>
+        DASHBOARD
+      </div>
+      <button class="btn btn-primary" onclick="showView('log')">+ LOG TODAY</button>
+    </div>
+
+    <div class="grid-3" style="margin-bottom:20px">
+      <div class="card">
+        <div class="card-label">This Week</div>
+        <div class="card-value" id="stat-week">0</div>
+        <div class="card-sub">sessions logged</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Total Sessions</div>
+        <div class="card-value" id="stat-total">0</div>
+        <div class="card-sub">all time</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Active Members</div>
+        <div class="card-value" id="stat-members">0</div>
+        <div class="card-sub">in your crew</div>
+      </div>
+    </div>
+
+    <!-- Calendar -->
+    <div class="card" style="margin-bottom:20px">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px">
+        <div class="card-label" id="cal-month-label">MAY 2026</div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-secondary btn-sm" onclick="changeMonth(-1)">◀</button>
+          <button class="btn btn-secondary btn-sm" onclick="changeMonth(1)">▶</button>
+        </div>
+      </div>
+      <div class="calendar-grid" id="calendar-grid"></div>
+      <div style="display:flex;gap:16px;margin-top:12px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text3)">
+        <span><span style="color:var(--accent)">■</span> Logged workout</span>
+        <span><span style="color:var(--blue)">■</span> Planned</span>
+        <span><span style="color:var(--text2)">■</span> Today</span>
+      </div>
+    </div>
+
+    <!-- Recent -->
+    <div class="section-title" style="font-size:28px;margin-bottom:16px">
+      <span>// RECENT SESSIONS</span>
+      LAST 5 WORKOUTS
+    </div>
+    <div id="recent-list">
+      <div class="empty-state"><div class="icon">🏋️</div><p>No workouts logged yet.</p></div>
+    </div>
+  </div>
+
+  <!-- LOG WORKOUT -->
+  <div class="view" id="view-log">
+    <div class="section-header">
+      <div class="section-title">
+        <span>// RECORD SESSION</span>
+        LOG WORKOUT
+      </div>
+    </div>
+
+    <div class="grid-2" style="margin-bottom:20px">
+      <div class="form-group" style="margin-bottom:0">
+        <label>Date</label>
+        <input type="date" id="log-date" />
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label>Session Name / Type</label>
+        <input type="text" id="log-name" placeholder="e.g. Upper Body, Leg Day, Push..." />
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Who's Here</label>
+      <div class="member-chips" id="log-members-chips"></div>
+    </div>
+
+    <hr class="divider">
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <div class="section-title" style="font-size:24px">Exercises</div>
+      <button class="btn btn-secondary btn-sm" onclick="addLogExercise()">+ ADD EXERCISE</button>
+    </div>
+
+    <div id="log-exercises"></div>
+
+    <hr class="divider">
+
+    <div class="form-group">
+      <label>Notes</label>
+      <textarea id="log-notes" rows="3" placeholder="How'd it go? PR? Anything notable..."></textarea>
+    </div>
+
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-primary" onclick="saveWorkoutLog()">💾 SAVE SESSION</button>
+      <button class="btn btn-secondary" onclick="clearLog()">CLEAR</button>
+    </div>
+  </div>
+
+  <!-- PLAN WORKOUT -->
+  <div class="view" id="view-plan">
+    <div class="section-header">
+      <div class="section-title">
+        <span>// DESIGN YOUR SESSION</span>
+        PLAN WORKOUT
+      </div>
+      <button class="btn btn-primary" onclick="savePlan()">💾 SAVE PLAN</button>
+    </div>
+
+    <div class="grid-2" style="margin-bottom:20px">
+      <div class="form-group" style="margin-bottom:0">
+        <label>Planned For</label>
+        <input type="date" id="plan-date" />
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label>Workout Name</label>
+        <input type="text" id="plan-name" placeholder="e.g. Push Day, Leg Grind..." />
+      </div>
+    </div>
+
+    <hr class="divider">
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <div>
+        <div class="section-title" style="font-size:24px">Exercise Order</div>
+        <p style="font-size:12px;color:var(--text2);font-family:'IBM Plex Mono',monospace;margin-top:4px">Drag to reorder · Set target sets/reps/weight</p>
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="addPlanSlot()">+ ADD EXERCISE</button>
+    </div>
+
+    <div id="plan-slots"></div>
+
+    <!-- Add new exercise to library -->
+    <div style="margin-top:16px">
+      <button class="btn btn-secondary btn-sm" onclick="toggleNewExercise()">＋ EXERCISE NOT IN LIST? ADD IT</button>
+      <div id="new-exercise-inline">
+        <div class="grid-2">
+          <div class="form-group">
+            <label>Exercise Name</label>
+            <input type="text" id="new-ex-name" placeholder="e.g. Bulgarian Press Squat" />
+          </div>
+          <div class="form-group">
+            <label>Category</label>
+            <select id="new-ex-cat">
+              <option value="warmup">Warmup</option>
+              <option value="chest">Chest</option>
+              <option value="back">Back</option>
+              <option value="legs">Legs</option>
+              <option value="shoulders">Shoulders</option>
+              <option value="arms">Arms</option>
+              <option value="core">Core</option>
+              <option value="cardio">Cardio</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn btn-green btn-sm" onclick="saveNewExercise()">SAVE TO LIBRARY</button>
+      </div>
+    </div>
+
+    <hr class="divider">
+
+    <!-- Saved Plans -->
+    <div class="section-title" style="font-size:24px;margin-bottom:16px">
+      <span>// UPCOMING</span>
+      SAVED PLANS
+    </div>
+    <div id="saved-plans-list">
+      <div class="empty-state"><div class="icon">📋</div><p>No plans saved yet.</p></div>
+    </div>
+  </div>
+
+  <!-- HISTORY -->
+  <div class="view" id="view-history">
+    <div class="section-header">
+      <div class="section-title">
+        <span>// ALL TIME</span>
+        WORKOUT HISTORY
+      </div>
+      <div style="display:flex;gap:8px">
+        <input type="text" id="history-search" placeholder="Search..." style="width:180px;padding:8px 12px;font-size:13px" oninput="filterHistory()" />
+      </div>
+    </div>
+    <div id="history-list">
+      <div class="empty-state"><div class="icon">📓</div><p>No history yet.</p></div>
+    </div>
+  </div>
+
+  <!-- MEMBERS -->
+  <div class="view" id="view-members">
+    <div class="section-header">
+      <div class="section-title">
+        <span>// YOUR CREW</span>
+        MEMBERS
+      </div>
+      <button class="btn btn-primary" onclick="openModal('modal-add-member')">+ ADD MEMBER</button>
+    </div>
+
+    <div id="members-grid" class="grid-3">
+      <div class="empty-state" style="grid-column:1/-1"><div class="icon">👥</div><p>Add your gym crew.</p></div>
+    </div>
+  </div>
+
+</main>
+
+<!-- STATUS BAR -->
+<div id="status-bar"></div>
+
+<!-- ===== MODALS ===== -->
+
+<!-- Add Member -->
+<div class="modal-overlay" id="modal-add-member">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('modal-add-member')">✕</button>
+    <div class="modal-title">ADD MEMBER</div>
+    <div class="form-group">
+      <label>Name</label>
+      <input type="text" id="member-name" placeholder="e.g. Jake" />
+    </div>
+    <div class="form-group">
+      <label>Role / Tag (optional)</label>
+      <input type="text" id="member-tag" placeholder="e.g. lifter, cardio king..." />
+    </div>
+    <button class="btn btn-primary" onclick="saveMember()">SAVE MEMBER</button>
+  </div>
+</div>
+
+<!-- Log Detail Modal -->
+<div class="modal-overlay" id="modal-log-detail">
+  <div class="modal" style="max-width:680px">
+    <button class="modal-close" onclick="closeModal('modal-log-detail')">✕</button>
+    <div class="modal-title" id="log-detail-title">SESSION DETAIL</div>
+    <div id="log-detail-body"></div>
+  </div>
+</div>
+
+<!-- Plan Use Modal (load plan into log) -->
+<div class="modal-overlay" id="modal-plan-use">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('modal-plan-use')">✕</button>
+    <div class="modal-title">USE THIS PLAN</div>
+    <p style="color:var(--text2);font-size:13px;margin-bottom:16px">Load this plan into the workout logger to record actual weights & reps.</p>
+    <button class="btn btn-primary" onclick="loadPlanToLog()">LOAD INTO LOG</button>
+  </div>
+</div>
+
+<script>
+// =====================
+//   SUPABASE CLIENT
+// =====================
+let sb = null;
+let sbReady = false;
+let pendingPlanForLog = null;
+
+// =====================
+//   EMBEDDED SUPABASE CONFIG
+// =====================
+// Paste your real Supabase Project URL and anon public key below.
+// IMPORTANT: Use the anon public key only. Do NOT paste your service_role key into frontend code.
+const SUPABASE_URL = 'https://vvewurwnkocezvuwstxm.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ2ZXd1cndua29jZXp2dXdzdHhtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg4MDg1ODAsImV4cCI6MjA5NDM4NDU4MH0.h1K-jFB9CoEOiZRvGtHLkXRAJKWQrvQ5fCrM8HtDcAM';
+
+const SUPABASE_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/supabase-js/2.39.6/supabase.umd.min.js';
+
+function loadSupabaseJS(cb) {
+  if (window.supabase) { cb(); return; }
+  const s = document.createElement('script');
+  s.src = SUPABASE_CDN;
+  s.onload = cb;
+  document.head.appendChild(s);
+}
+
+function initSupabase(useEmbedded = false) {
+  const url = useEmbedded
+    ? SUPABASE_URL.trim()
+    : document.getElementById('sb-url')?.value.trim();
+
+  const key = useEmbedded
+    ? SUPABASE_ANON_KEY.trim()
+    : document.getElementById('sb-key')?.value.trim();
+
+  if (!url || !key) {
+    showStatus('Supabase URL/key missing from embedded constants.', 'error');
+    return;
+  }
+
+  loadSupabaseJS(() => {
+    sb = window.supabase.createClient(url, key);
+    sbReady = true;
+    showStatus('Supabase connected! Setting up tables...', 'success');
+    setupTables().then(() => {
+      loadAll();
+    });
+  });
+}
+
+function autoInitSupabase() {
+  if (SUPABASE_URL.trim() && SUPABASE_ANON_KEY.trim()) {
+    initSupabase(true);
+  }
+}
+
+async function setupTables() {
+  // We rely on Supabase existing tables. Show SQL hint if tables don't exist.
+  // Tables: members, exercises, workout_plans, plan_exercises, workout_logs, log_exercises, log_sets
+}
+
+async function sbInsert(table, data) {
+  if (!sbReady) { showStatus('Connect Supabase first!', 'error'); return null; }
+  const { data: d, error } = await sb.from(table).insert(data).select();
+  if (error) { showStatus('DB error: ' + error.message, 'error'); return null; }
+  return d;
+}
+
+async function sbSelect(table, query) {
+  if (!sbReady) return [];
+  let q = sb.from(table).select(query || '*');
+  const { data, error } = await q;
+  if (error) { console.error(error); return []; }
+  return data || [];
+}
+
+async function sbDelete(table, id) {
+  if (!sbReady) return;
+  await sb.from(table).delete().eq('id', id);
+}
+
+async function sbUpdate(table, id, data) {
+  if (!sbReady) return;
+  await sb.from(table).update(data).eq('id', id);
+}
+
+// =====================
+//   LOCAL STATE
+// =====================
+let members = [];
+let exercises = [];
+let workoutLogs = [];
+let workoutPlans = [];
+let calMonth = dayjs();
+
+// Default exercises
+const DEFAULT_EXERCISES = [
+  { name: 'Light Cardio Warmup', category: 'warmup' },
+  { name: 'Dynamic Stretching', category: 'warmup' },
+  { name: 'Foam Rolling', category: 'warmup' },
+  { name: 'Bench Press', category: 'chest' },
+  { name: 'Incline Dumbbell Press', category: 'chest' },
+  { name: 'Cable Flyes', category: 'chest' },
+  { name: 'Pull-Ups', category: 'back' },
+  { name: 'Barbell Row', category: 'back' },
+  { name: 'Lat Pulldown', category: 'back' },
+  { name: 'Squat', category: 'legs' },
+  { name: 'Deadlift', category: 'legs' },
+  { name: 'Bulgarian Split Squat', category: 'legs' },
+  { name: 'Leg Press', category: 'legs' },
+  { name: 'Box Jump', category: 'legs' },
+  { name: 'Shoulder Press', category: 'shoulders' },
+  { name: 'Lateral Raises', category: 'shoulders' },
+  { name: 'Face Pulls', category: 'shoulders' },
+  { name: 'Bicep Curls', category: 'arms' },
+  { name: 'Tricep Dips', category: 'arms' },
+  { name: 'Skull Crushers', category: 'arms' },
+  { name: 'Plank', category: 'core' },
+  { name: 'Ab Wheel Rollout', category: 'core' },
+  { name: 'Running', category: 'cardio' },
+  { name: 'Rowing Machine', category: 'cardio' },
+];
+
+function getExerciseOptions(selectedId) {
+  const grouped = {};
+  exercises.forEach(e => {
+    if (!grouped[e.category]) grouped[e.category] = [];
+    grouped[e.category].push(e);
+  });
+  const cats = Object.keys(grouped).sort();
+  return cats.map(cat => `
+    <optgroup label="${cat.toUpperCase()}">
+      ${grouped[cat].map(e => `<option value="${e.id}" ${e.id == selectedId ? 'selected' : ''}>${e.name}</option>`).join('')}
+    </optgroup>
+  `).join('');
+}
+
+// =====================
+//   NAVIGATION
+// =====================
+function showView(id) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  document.getElementById('view-' + id).classList.add('active');
+  document.querySelectorAll('nav button').forEach(b => {
+    if (b.textContent.toLowerCase().includes(id.substring(0,4))) b.classList.add('active');
+  });
+  if (id === 'dashboard') renderDashboard();
+  if (id === 'history') renderHistory();
+  if (id === 'plan') renderSavedPlans();
+  if (id === 'members') renderMembers();
+  if (id === 'log') initLog();
+}
+
+// =====================
+//   LOAD ALL DATA
+// =====================
+async function loadAll() {
+  if (!sbReady) {
+    // use local state only (demo mode)
+    exercises = DEFAULT_EXERCISES.map((e, i) => ({ ...e, id: i + 1 }));
+    renderDashboard();
+    initLog();
+    renderMembers();
+    renderSavedPlans();
+    return;
+  }
+
+  members = await sbSelect('members');
+  exercises = await sbSelect('exercises');
+  if (!exercises.length) {
+    // seed defaults
+    for (const ex of DEFAULT_EXERCISES) {
+      await sb.from('exercises').insert(ex);
+    }
+    exercises = await sbSelect('exercises');
+  }
+  workoutLogs = await sbSelect('workout_logs', '*, log_exercises(*, log_sets(*), exercise:exercises(*)), log_members(*, member:members(*))');
+  workoutPlans = await sbSelect('workout_plans', '*, plan_exercises(*, exercise:exercises(*))');
+
+  renderDashboard();
+  initLog();
+  renderMembers();
+  renderSavedPlans();
+  renderCalendar();
+}
+
+// =====================
+//   DASHBOARD
+// =====================
+function renderDashboard() {
+  const weekStart = dayjs().startOf('week');
+  const thisWeek = workoutLogs.filter(w => dayjs(w.date).isAfter(weekStart) || dayjs(w.date).isSame(weekStart, 'day'));
+  document.getElementById('stat-week').textContent = thisWeek.length;
+  document.getElementById('stat-total').textContent = workoutLogs.length;
+  document.getElementById('stat-members').textContent = members.length;
+
+  const recent = [...workoutLogs].sort((a, b) => dayjs(b.date).unix() - dayjs(a.date).unix()).slice(0, 5);
+  const el = document.getElementById('recent-list');
+  if (!recent.length) {
+    el.innerHTML = '<div class="empty-state"><div class="icon">🏋️</div><p>No workouts logged yet.</p></div>';
+    return;
+  }
+  el.innerHTML = recent.map(w => `
+    <div class="log-entry" onclick="openLogDetail(${w.id})">
+      <div class="log-header">
+        <div>
+          <div class="log-date">${dayjs(w.date).format('MMM DD, YYYY')}</div>
+          <div style="font-size:12px;color:var(--text2);font-family:'IBM Plex Mono',monospace;margin-top:3px">${w.name || 'Session'}</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          ${(w.log_exercises || []).length ? `<span class="badge badge-yellow">${(w.log_exercises||[]).length} exercises</span>` : ''}
+          <span style="color:var(--text3);font-size:18px">›</span>
+        </div>
+      </div>
+    </div>
+  `).join('');
+
+  renderCalendar();
+}
+
+function renderCalendar() {
+  const el = document.getElementById('calendar-grid');
+  const label = document.getElementById('cal-month-label');
+  label.textContent = calMonth.format('MMMM YYYY').toUpperCase();
+
+  const start = calMonth.startOf('month');
+  const daysInMonth = calMonth.daysInMonth();
+  const startDow = start.day(); // 0=Sun
+
+  const loggedDates = new Set(workoutLogs.map(w => w.date));
+  const plannedDates = new Set(workoutPlans.map(p => p.date));
+
+  const days = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
+  let html = days.map(d => `<div class="cal-day-name">${d}</div>`).join('');
+
+  // empty cells
+  for (let i = 0; i < startDow; i++) html += `<div class="cal-day empty"></div>`;
+
+  const today = dayjs().format('YYYY-MM-DD');
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = calMonth.date(d).format('YYYY-MM-DD');
+    const isToday = dateStr === today;
+    const hasLog = loggedDates.has(dateStr);
+    const hasPlan = plannedDates.has(dateStr);
+    let cls = 'cal-day';
+    if (isToday) cls += ' today';
+    if (hasLog) cls += ' has-workout';
+    else if (hasPlan) cls += ' has-planned';
+    html += `<div class="${cls}">${d}</div>`;
+  }
+  el.innerHTML = html;
+}
+
+function changeMonth(dir) {
+  calMonth = calMonth.add(dir, 'month');
+  renderCalendar();
+}
+
+// =====================
+//   LOG WORKOUT
+// =====================
+let logExercises = [];
+let selectedMembers = [];
+
+function initLog() {
+  const today = dayjs().format('YYYY-MM-DD');
+  document.getElementById('log-date').value = today;
+
+  // Render member chips
+  const chips = document.getElementById('log-members-chips');
+  chips.innerHTML = members.map(m => `
+    <div class="member-chip ${selectedMembers.includes(m.id) ? 'selected' : ''}" onclick="toggleMember(${m.id}, this)">${m.name}</div>
+  `).join('') || '<span style="color:var(--text3);font-size:12px;font-family:IBM Plex Mono,monospace">No members yet — add some in the Members tab</span>';
+
+  if (!logExercises.length) addLogExercise();
+  renderLogExercises();
+}
+
+function toggleMember(id, el) {
+  if (selectedMembers.includes(id)) {
+    selectedMembers = selectedMembers.filter(m => m !== id);
+    el.classList.remove('selected');
+  } else {
+    selectedMembers.push(id);
+    el.classList.add('selected');
+  }
+}
+
+function addLogExercise() {
+  logExercises.push({ exercise_id: exercises[0]?.id || null, sets: [{ reps: '', weight: '', unit: 'lbs' }] });
+  renderLogExercises();
+}
+
+function renderLogExercises() {
+  const el = document.getElementById('log-exercises');
+  el.innerHTML = logExercises.map((ex, i) => `
+    <div class="log-entry" style="margin-bottom:12px">
+      <div style="padding:14px 16px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+          <span style="font-family:'Bebas Neue',sans-serif;font-size:22px;color:var(--text3)">${i+1}</span>
+          <select style="flex:1" onchange="setLogExercise(${i}, this.value)">
+            ${getExerciseOptions(ex.exercise_id)}
+          </select>
+          <button class="btn btn-secondary btn-sm" onclick="addSet(${i})">+ SET</button>
+          <button onclick="removeLogExercise(${i})" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:18px;padding:4px" title="Remove">✕</button>
+        </div>
+        <div style="padding:0 8px">
+          <div style="display:grid;grid-template-columns:28px 1fr 1fr 1fr auto;gap:8px;margin-bottom:6px">
+            <div></div>
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text3);letter-spacing:1px">REPS</div>
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text3);letter-spacing:1px">WEIGHT</div>
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text3);letter-spacing:1px">UNIT</div>
+            <div></div>
+          </div>
+          ${ex.sets.map((s, si) => `
+            <div class="set-row">
+              <div class="set-num">${si+1}</div>
+              <input type="number" placeholder="10" value="${s.reps}" min="0"
+                onchange="updateSet(${i},${si},'reps',this.value)" style="background:var(--surface3);border-color:transparent;font-size:13px;padding:7px 10px" />
+              <input type="number" placeholder="135" value="${s.weight}" min="0"
+                onchange="updateSet(${i},${si},'weight',this.value)" style="background:var(--surface3);border-color:transparent;font-size:13px;padding:7px 10px" />
+              <select onchange="updateSet(${i},${si},'unit',this.value)" style="background:var(--surface3);border-color:transparent;font-size:13px;padding:7px 10px">
+                <option value="lbs" ${s.unit==='lbs'?'selected':''}>lbs</option>
+                <option value="kg" ${s.unit==='kg'?'selected':''}>kg</option>
+                <option value="bw" ${s.unit==='bw'?'selected':''}>BW</option>
+              </select>
+              <button onclick="removeSet(${i},${si})" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:14px" title="Remove set">✕</button>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function setLogExercise(i, val) { logExercises[i].exercise_id = val; }
+function addSet(i) { logExercises[i].sets.push({ reps: '', weight: '', unit: 'lbs' }); renderLogExercises(); }
+function removeSet(i, si) { if (logExercises[i].sets.length > 1) { logExercises[i].sets.splice(si, 1); renderLogExercises(); } }
+function updateSet(i, si, field, val) { logExercises[i].sets[si][field] = val; }
+function removeLogExercise(i) { logExercises.splice(i, 1); if (!logExercises.length) addLogExercise(); else renderLogExercises(); }
+
+async function saveWorkoutLog() {
+  const date = document.getElementById('log-date').value;
+  const name = document.getElementById('log-name').value || 'Session';
+  const notes = document.getElementById('log-notes').value;
+
+  if (!date) { showStatus('Pick a date!', 'error'); return; }
+
+  if (!sbReady) {
+    // local only
+    const id = Date.now();
+    const exDetails = logExercises.map(ex => ({
+      exercise_id: ex.exercise_id,
+      exercise: exercises.find(e => e.id == ex.exercise_id),
+      log_sets: ex.sets.map(s => ({ ...s }))
+    }));
+    workoutLogs.push({ id, date, name, notes, log_exercises: exDetails, log_members: selectedMembers.map(mid => ({ member: members.find(m => m.id === mid) })) });
+    showStatus('Workout saved (local only — connect Supabase to persist)!', 'success');
+    clearLog();
+    renderDashboard();
+    return;
+  }
+
+  const logData = await sbInsert('workout_logs', { date, name, notes });
+  if (!logData) return;
+  const logId = logData[0].id;
+
+  // Save member associations
+  for (const mid of selectedMembers) {
+    await sbInsert('log_members', { log_id: logId, member_id: mid });
+  }
+
+  // Save exercises and sets
+  for (const ex of logExercises) {
+    if (!ex.exercise_id) continue;
+    const exData = await sbInsert('log_exercises', { log_id: logId, exercise_id: ex.exercise_id });
+    if (!exData) continue;
+    const logExId = exData[0].id;
+    for (const s of ex.sets) {
+      if (!s.reps && !s.weight) continue;
+      await sbInsert('log_sets', { log_exercise_id: logExId, reps: s.reps || 0, weight: s.weight || 0, unit: s.unit });
+    }
+  }
+
+  workoutLogs = await sbSelect('workout_logs', '*, log_exercises(*, log_sets(*), exercise:exercises(*)), log_members(*, member:members(*))');
+  showStatus('Workout saved! 💪', 'success');
+  clearLog();
+  renderDashboard();
+}
+
+function clearLog() {
+  logExercises = [];
+  selectedMembers = [];
+  document.getElementById('log-name').value = '';
+  document.getElementById('log-notes').value = '';
+  document.getElementById('log-date').value = dayjs().format('YYYY-MM-DD');
+  initLog();
+}
+
+// =====================
+//   PLAN WORKOUT
+// =====================
+let planSlots = [];
+
+function addPlanSlot() {
+  planSlots.push({ exercise_id: exercises[0]?.id || null, sets: 3, reps: '8-12', weight: '', notes: '' });
+  renderPlanSlots();
+}
+
+function renderPlanSlots() {
+  const el = document.getElementById('plan-slots');
+  if (!planSlots.length) {
+    el.innerHTML = '<div class="empty-state" style="padding:30px 0"><p>Click "+ ADD EXERCISE" to build your workout</p></div>';
+    return;
+  }
+  el.innerHTML = planSlots.map((slot, i) => `
+    <div class="exercise-slot">
+      <div class="slot-num">${i+1}</div>
+      <div class="slot-inputs" style="flex:1">
+        <select onchange="setPlanExercise(${i},this.value)" style="flex:1">
+          ${getExerciseOptions(slot.exercise_id)}
+        </select>
+        <input type="number" placeholder="Sets" value="${slot.sets}" min="1" onchange="setPlanField(${i},'sets',this.value)" title="Sets" style="width:70px" />
+        <input type="text" placeholder="Reps" value="${slot.reps}" onchange="setPlanField(${i},'reps',this.value)" title="Rep target" style="width:80px" />
+        <input type="text" placeholder="Target wt" value="${slot.weight}" onchange="setPlanField(${i},'weight',this.value)" title="Target weight" style="width:90px" />
+      </div>
+      <button class="slot-remove" onclick="removePlanSlot(${i})" title="Remove">✕</button>
+    </div>
+  `).join('');
+}
+
+function setPlanExercise(i, val) { planSlots[i].exercise_id = val; }
+function setPlanField(i, field, val) { planSlots[i][field] = val; }
+function removePlanSlot(i) { planSlots.splice(i, 1); renderPlanSlots(); }
+
+async function savePlan() {
+  const date = document.getElementById('plan-date').value;
+  const name = document.getElementById('plan-name').value || 'Planned Workout';
+
+  if (!date) { showStatus('Set a date for this plan!', 'error'); return; }
+  if (!planSlots.length) { showStatus('Add at least one exercise!', 'error'); return; }
+
+  if (!sbReady) {
+    const id = Date.now();
+    workoutPlans.push({
+      id, date, name,
+      plan_exercises: planSlots.map(s => ({
+        sets: s.sets, reps: s.reps, weight: s.weight,
+        exercise: exercises.find(e => e.id == s.exercise_id)
+      }))
+    });
+    showStatus('Plan saved (local)!', 'success');
+    renderSavedPlans();
+    renderCalendar();
+    planSlots = [];
+    renderPlanSlots();
+    return;
+  }
+
+  const planData = await sbInsert('workout_plans', { date, name });
+  if (!planData) return;
+  const planId = planData[0].id;
+
+  let order = 0;
+  for (const s of planSlots) {
+    if (!s.exercise_id) continue;
+    await sbInsert('plan_exercises', {
+      plan_id: planId,
+      exercise_id: s.exercise_id,
+      target_sets: s.sets,
+      target_reps: s.reps,
+      target_weight: s.weight,
+      order_index: order++
+    });
+  }
+
+  workoutPlans = await sbSelect('workout_plans', '*, plan_exercises(*, exercise:exercises(*))');
+  showStatus('Plan saved! 📋', 'success');
+  planSlots = [];
+  document.getElementById('plan-name').value = '';
+  renderPlanSlots();
+  renderSavedPlans();
+  renderCalendar();
+}
+
+function renderSavedPlans() {
+  const el = document.getElementById('saved-plans-list');
+  if (!workoutPlans.length) {
+    el.innerHTML = '<div class="empty-state"><div class="icon">📋</div><p>No plans saved yet.</p></div>';
+    return;
+  }
+  const sorted = [...workoutPlans].sort((a,b) => dayjs(a.date).unix() - dayjs(b.date).unix());
+  el.innerHTML = sorted.map(p => {
+    const exs = (p.plan_exercises || []).sort((a,b) => (a.order_index||0)-(b.order_index||0));
+    const isPast = dayjs(p.date).isBefore(dayjs(), 'day');
+    const isToday = dayjs(p.date).isSame(dayjs(), 'day');
+    return `
+      <div class="log-entry" style="margin-bottom:10px">
+        <div class="log-header">
+          <div>
+            <div style="display:flex;align-items:center;gap:10px">
+              <div class="log-date">${dayjs(p.date).format('MMM DD, YYYY')}</div>
+              ${isToday ? '<span class="badge badge-green">TODAY</span>' : ''}
+              ${isPast ? '<span class="badge badge-gray">PAST</span>' : ''}
+            </div>
+            <div style="font-size:12px;color:var(--text2);font-family:'IBM Plex Mono',monospace;margin-top:3px">${p.name}</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="btn btn-secondary btn-sm" onclick="loadPlanToLogDirect(${p.id})">USE NOW</button>
+            <button class="btn btn-danger btn-sm" onclick="deletePlan(${p.id})">DELETE</button>
+          </div>
+        </div>
+        <div style="padding:0 20px 14px">
+          ${exs.map((e, i) => `
+            <div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px">
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text3);width:20px">${i+1}</span>
+              <span style="flex:1">${e.exercise?.name || '—'}</span>
+              <span class="badge badge-gray">${e.target_sets || '—'} × ${e.target_reps || '—'}</span>
+              ${e.target_weight ? `<span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text2)">${e.target_weight}</span>` : ''}
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function deletePlan(id) {
+  if (!confirm('Delete this plan?')) return;
+  if (sbReady) {
+    await sb.from('plan_exercises').delete().eq('plan_id', id);
+    await sbDelete('workout_plans', id);
+    workoutPlans = await sbSelect('workout_plans', '*, plan_exercises(*, exercise:exercises(*))');
+  } else {
+    workoutPlans = workoutPlans.filter(p => p.id !== id);
+  }
+  renderSavedPlans();
+  renderCalendar();
+  showStatus('Plan deleted.', 'success');
+}
+
+
+function openPlanUseModal(planId) {
+  pendingPlanForLog = workoutPlans.find(p => p.id === planId) || null;
+  if (!pendingPlanForLog) { showStatus('Plan not found.', 'error'); return; }
+  openModal('modal-plan-use');
+}
+
+function loadPlanToLog() {
+  if (!pendingPlanForLog) { showStatus('No plan selected.', 'error'); return; }
+  loadPlanToLogDirect(pendingPlanForLog.id);
+  pendingPlanForLog = null;
+  closeModal('modal-plan-use');
+}
+
+function loadPlanToLogDirect(planId) {
+  const plan = workoutPlans.find(p => p.id === planId);
+  if (!plan) return;
+  const exs = (plan.plan_exercises || []).sort((a,b) => (a.order_index||0)-(b.order_index||0));
+  logExercises = exs.map(e => ({
+    exercise_id: e.exercise_id || e.exercise?.id,
+    sets: Array.from({ length: parseInt(e.target_sets) || 3 }, () => ({ reps: e.target_reps || '', weight: e.target_weight || '', unit: 'lbs' }))
+  }));
+  document.getElementById('log-date').value = plan.date;
+  document.getElementById('log-name').value = plan.name;
+  showView('log');
+  renderLogExercises();
+  showStatus('Plan loaded into logger!', 'success');
+}
+
+// =====================
+//   NEW EXERCISE
+// =====================
+function toggleNewExercise() {
+  const el = document.getElementById('new-exercise-inline');
+  el.style.display = el.style.display === 'block' ? 'none' : 'block';
+}
+
+async function saveNewExercise() {
+  const name = document.getElementById('new-ex-name').value.trim();
+  const category = document.getElementById('new-ex-cat').value;
+  if (!name) { showStatus('Enter exercise name!', 'error'); return; }
+
+  let newEx;
+  if (sbReady) {
+    const res = await sbInsert('exercises', { name, category });
+    if (!res) return;
+    newEx = res[0];
+    exercises = await sbSelect('exercises');
+  } else {
+    newEx = { id: Date.now(), name, category };
+    exercises.push(newEx);
+  }
+
+  document.getElementById('new-ex-name').value = '';
+  toggleNewExercise();
+  showStatus(`"${name}" added to library!`, 'success');
+  // refresh plan slots selects
+  renderPlanSlots();
+}
+
+// =====================
+//   HISTORY
+// =====================
+function renderHistory() {
+  const search = (document.getElementById('history-search')?.value || '').toLowerCase();
+  const el = document.getElementById('history-list');
+  const sorted = [...workoutLogs].sort((a,b) => dayjs(b.date).unix() - dayjs(a.date).unix());
+  const filtered = sorted.filter(w => !search || (w.name||'').toLowerCase().includes(search) || w.date.includes(search));
+
+  if (!filtered.length) {
+    el.innerHTML = '<div class="empty-state"><div class="icon">📓</div><p>No history yet.</p></div>';
+    return;
+  }
+
+  el.innerHTML = filtered.map(w => {
+    const exs = (w.log_exercises || []);
+    return `
+      <div class="log-entry">
+        <div class="log-header" onclick="this.nextElementSibling.classList.toggle('open')">
+          <div>
+            <div style="display:flex;align-items:center;gap:10px">
+              <div class="log-date">${dayjs(w.date).format('ddd MMM DD, YYYY')}</div>
+            </div>
+            <div style="font-size:12px;color:var(--text2);font-family:'IBM Plex Mono',monospace;margin-top:3px">${w.name || 'Session'}</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            ${exs.length ? `<span class="badge badge-yellow">${exs.length} ex</span>` : ''}
+            <span style="color:var(--text3);font-size:18px">▾</span>
+          </div>
+        </div>
+        <div class="log-body">
+          ${exs.map(e => {
+            const sets = e.log_sets || [];
+            return `
+              <div style="padding:10px 0;border-bottom:1px solid var(--border)">
+                <div style="font-weight:600;margin-bottom:6px">${e.exercise?.name || '—'}</div>
+                <div style="display:flex;flex-wrap:wrap;gap:6px">
+                  ${sets.map((s,si) => `<span class="badge badge-gray">Set ${si+1}: ${s.reps || '?'} reps × ${s.weight || '?'} ${s.unit||'lbs'}</span>`).join('')}
+                  ${!sets.length ? '<span style="color:var(--text3);font-size:12px">No sets recorded</span>' : ''}
+                </div>
+              </div>
+            `;
+          }).join('')}
+          ${w.notes ? `<div style="margin-top:10px;font-size:12px;color:var(--text2);font-family:'IBM Plex Mono',monospace;padding:10px;background:var(--surface2);border-radius:4px">${w.notes}</div>` : ''}
+          ${!exs.length ? '<p style="color:var(--text3);font-size:13px;padding:10px 0">No exercises recorded.</p>' : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function filterHistory() { renderHistory(); }
+
+// =====================
+//   MEMBERS
+// =====================
+function renderMembers() {
+  const el = document.getElementById('members-grid');
+  if (!members.length) {
+    el.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="icon">👥</div><p>Add your gym crew.</p></div>';
+    return;
+  }
+  el.innerHTML = members.map(m => {
+    const sessions = workoutLogs.filter(w =>
+      (w.log_members || []).some(lm => lm.member_id === m.id || lm.member?.id === m.id)
+    ).length;
+    return `
+      <div class="card" style="position:relative">
+        <button onclick="deleteMember(${m.id})" style="position:absolute;top:10px;right:10px;background:none;border:none;color:var(--text3);cursor:pointer;font-size:14px" title="Remove">✕</button>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:48px;color:var(--accent);line-height:1">${m.name[0].toUpperCase()}</div>
+        <div style="font-size:16px;font-weight:600;margin-top:4px">${m.name}</div>
+        ${m.tag ? `<div style="margin-top:4px"><span class="badge badge-blue">${m.tag}</span></div>` : ''}
+        <div style="margin-top:12px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text3)">${sessions} sessions logged</div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function saveMember() {
+  const name = document.getElementById('member-name').value.trim();
+  const tag = document.getElementById('member-tag').value.trim();
+  if (!name) { showStatus('Enter a name!', 'error'); return; }
+
+  if (sbReady) {
+    const res = await sbInsert('members', { name, tag });
+    if (!res) return;
+    members = await sbSelect('members');
+  } else {
+    members.push({ id: Date.now(), name, tag });
+  }
+
+  closeModal('modal-add-member');
+  document.getElementById('member-name').value = '';
+  document.getElementById('member-tag').value = '';
+  renderMembers();
+  showStatus(`${name} added!`, 'success');
+}
+
+async function deleteMember(id) {
+  if (!confirm('Remove this member?')) return;
+  if (sbReady) { await sbDelete('members', id); members = await sbSelect('members'); }
+  else { members = members.filter(m => m.id !== id); }
+  renderMembers();
+}
+
+// =====================
+//   LOG DETAIL
+// =====================
+function openLogDetail(id) {
+  const w = workoutLogs.find(w => w.id === id);
+  if (!w) return;
+  document.getElementById('log-detail-title').textContent = (w.name || 'SESSION') + ' — ' + dayjs(w.date).format('MMM DD, YYYY').toUpperCase();
+  const exs = w.log_exercises || [];
+  document.getElementById('log-detail-body').innerHTML = `
+    ${exs.map(e => {
+      const sets = e.log_sets || [];
+      return `
+        <div style="margin-bottom:16px">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:1px;margin-bottom:8px">${e.exercise?.name || '—'}</div>
+          <table style="width:100%">
+            <tr><th>SET</th><th>REPS</th><th>WEIGHT</th><th>UNIT</th></tr>
+            ${sets.map((s,i) => `<tr><td>${i+1}</td><td>${s.reps||'—'}</td><td>${s.weight||'—'}</td><td>${s.unit||'lbs'}</td></tr>`).join('')}
+          </table>
+        </div>
+      `;
+    }).join('')}
+    ${w.notes ? `<div style="margin-top:12px;padding:12px;background:var(--surface2);border-radius:4px;font-size:13px;color:var(--text2)">${w.notes}</div>` : ''}
+  `;
+  openModal('modal-log-detail');
+}
+
+// =====================
+//   MODALS & UTILS
+// =====================
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+document.querySelectorAll('.modal-overlay').forEach(o => {
+  o.addEventListener('click', e => { if (e.target === o) o.classList.remove('open'); });
+});
+
+let statusTimer;
+function showStatus(msg, type = '') {
+  const el = document.getElementById('status-bar');
+  el.textContent = msg;
+  el.className = type;
+  el.style.display = 'block';
+  clearTimeout(statusTimer);
+  statusTimer = setTimeout(() => { el.style.display = 'none'; }, 3500);
+}
+
+// =====================
+//   INIT
+// =====================
+window.addEventListener('load', () => {
+  // Set default dates
+  const today = dayjs().format('YYYY-MM-DD');
+  const tomorrow = dayjs().add(1,'day').format('YYYY-MM-DD');
+  document.getElementById('log-date').value = today;
+  document.getElementById('plan-date').value = tomorrow;
+
+  // If embedded Supabase credentials are present, connect automatically.
+  if (SUPABASE_URL.trim() && SUPABASE_ANON_KEY.trim()) {
+    autoInitSupabase();
+    return;
+  }
+
+  // Load without Supabase (demo mode)
+  exercises = DEFAULT_EXERCISES.map((e, i) => ({ ...e, id: i + 1 }));
+  addPlanSlot(); // start with one slot
+  renderPlanSlots();
+  renderDashboard();
+  renderCalendar();
+  initLog();
+  renderSavedPlans();
+});
+
+// Supabase SQL hint on load
+console.log(`
+-- IRON LOG: Run this SQL in your Supabase editor --
+
+create table members (id bigint generated always as identity primary key, name text not null, tag text);
+create table exercises (id bigint generated always as identity primary key, name text not null, category text default 'other');
+create table workout_plans (id bigint generated always as identity primary key, date date not null, name text, created_at timestamptz default now());
+create table plan_exercises (id bigint generated always as identity primary key, plan_id bigint references workout_plans(id), exercise_id bigint references exercises(id), target_sets int, target_reps text, target_weight text, order_index int default 0);
+create table workout_logs (id bigint generated always as identity primary key, date date not null, name text, notes text, created_at timestamptz default now());
+create table log_members (id bigint generated always as identity primary key, log_id bigint references workout_logs(id), member_id bigint references members(id));
+create table log_exercises (id bigint generated always as identity primary key, log_id bigint references workout_logs(id), exercise_id bigint references exercises(id));
+create table log_sets (id bigint generated always as identity primary key, log_exercise_id bigint references log_exercises(id), reps int, weight numeric, unit text default 'lbs');
+
+-- Enable Row Level Security (optional but recommended)
+-- Or for quick testing: alter table members enable row level security; create policy "allow all" on members for all using (true);
+`);
+</script>
+</body>
+</html>
