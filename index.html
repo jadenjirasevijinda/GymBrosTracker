@@ -1073,49 +1073,44 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 // Simple PIN gate (friends). Change this PIN before sharing.
 const APP_PIN = '4156';
 
-// Prefer a locally-hosted copy (recommended for iOS homescreen / captive networks),
-// then fall back to CDN. If you use the local option, download the file from the CDN
-// and save it as `vendor/supabase.umd.min.js` next to this `index.html`.
-const SUPABASE_SOURCES = [
-  'vendor/supabase.umd.min.js',
-  'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.6/dist/umd/supabase.umd.min.js',
-  'https://unpkg.com/@supabase/supabase-js@2.39.6/dist/umd/supabase.umd.min.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/supabase-js/2.39.6/supabase.umd.min.js'
-];
+// We avoid loading supabase-js (CDNs often blocked on mobile / school Wi‑Fi).
+// Instead we call Supabase PostgREST directly via fetch.
+const SUPABASE_REST = () => `${SUPABASE_URL.replace(/\\/$/, '')}/rest/v1`;
 
-function loadSupabaseJS() {
-  if (window.supabase) return Promise.resolve();
-  lastSupabaseLoadError = '';
-  lastSupabaseSourceTried = '';
+function sbHeaders(extra = {}) {
+  return {
+    apikey: SUPABASE_ANON_KEY,
+    Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+    'Content-Type': 'application/json',
+    ...extra
+  };
+}
 
-  if (location.protocol === 'file:') {
-    // On iOS homescreen / file:// contexts, remote scripts often fail.
-    lastSupabaseLoadError = 'Opened from file://. Serve this app over http(s) for Supabase to work.';
-  }
-
-  let i = 0;
-  return new Promise((resolve, reject) => {
-    const tryNext = () => {
-      if (i >= SUPABASE_SOURCES.length) {
-        const msg = lastSupabaseLoadError || 'Failed to load Supabase JS (offline/blocked).';
-        showStatus(msg, 'error');
-        reject(new Error(msg));
-        return;
-      }
-      const src = SUPABASE_SOURCES[i++];
-      lastSupabaseSourceTried = src;
-      const s = document.createElement('script');
-      s.src = src;
-      s.async = true;
-      s.onload = () => resolve();
-      s.onerror = () => {
-        lastSupabaseLoadError = `Failed to load Supabase JS from: ${src}`;
-        tryNext();
-      };
-      document.head.appendChild(s);
-    };
-    tryNext();
+async function sbFetch(path, { method = 'GET', body = null, headers = {}, accept = 'application/json' } = {}) {
+  const url = `${SUPABASE_REST()}${path.startsWith('/') ? '' : '/'}${path}`;
+  const res = await fetch(url, {
+    method,
+    headers: { ...sbHeaders({ Accept: accept }), ...headers },
+    body: body == null ? null : JSON.stringify(body)
   });
+  const text = await res.text();
+  let json = null;
+  try { json = text ? JSON.parse(text) : null; } catch { json = null; }
+  if (!res.ok) {
+    const msg = (json && (json.message || json.error_description || json.error))
+      ? (json.message || json.error_description || json.error)
+      : (text || `${res.status} ${res.statusText}`);
+    const err = new Error(msg);
+    err.status = res.status;
+    err.payload = json || text;
+    throw err;
+  }
+  return json;
+}
+
+async function sbPing() {
+  // If RLS blocks select, this will return a helpful error.
+  await sbFetch('/members?select=id&limit=1', { method: 'GET' });
 }
 
 function initSupabase(useEmbedded = false) {
@@ -1132,26 +1127,29 @@ function initSupabase(useEmbedded = false) {
     return;
   }
 
-  // Mark as not-ready until we verify the client lib loads.
+  // Mark as not-ready until we verify PostgREST is reachable.
   sbReady = false;
+  sb = null;
+  lastDbError = '';
+  lastSupabaseLoadError = '';
+  lastSupabaseSourceTried = 'postgrest';
   updateSupabaseStatusUI();
 
-  loadSupabaseJS().then(() => {
-    sb = window.supabase.createClient(url, key);
+  sbPing().then(() => {
     sbReady = true;
-    showStatus('Supabase connected! Setting up tables...', 'success');
+    showStatus('Supabase connected!', 'success');
     setupTables().then(() => {
       loadAll().then(() => {
-        // If you used the app offline, try to push local data up after connecting.
         syncLocalToSupabase().catch(() => {});
       });
     });
     updateSupabaseStatusUI();
   }).catch((e) => {
     sbReady = false;
-    sb = null;
-    lastDbError = '';
-    showStatus(e?.message || 'Supabase not connected.', 'error');
+    const msg = e?.message || String(e);
+    lastSupabaseLoadError = msg;
+    lastDbError = msg;
+    showStatus('Supabase not connected: ' + msg, 'error');
     updateSupabaseStatusUI();
   });
 }
@@ -1169,42 +1167,55 @@ async function setupTables() {
 
 async function sbInsert(table, data) {
   if (!sbReady) { showStatus('Connect Supabase first!', 'error'); return null; }
-  const { data: d, error } = await sb.from(table).insert(data).select();
-  if (error) {
-    lastDbError = error.message || String(error);
-    showStatus('DB error: ' + error.message, 'error');
-    console.error(error);
+  try {
+    const d = await sbFetch(`/${table}?select=*`, {
+      method: 'POST',
+      body: data,
+      headers: { Prefer: 'return=representation' }
+    });
+    return d;
+  } catch (e) {
+    lastDbError = e.message || String(e);
+    showStatus('DB error: ' + lastDbError, 'error');
+    console.error(e);
     return null;
   }
-  return d;
 }
 
 async function sbSelect(table, query) {
   if (!sbReady) return [];
-  let q = sb.from(table).select(query || '*');
-  const { data, error } = await q;
-  if (error) {
-    console.error(error);
-    lastDbError = error.message || String(error);
-    showStatus('DB error: ' + error.message, 'error');
+  try {
+    const q = encodeURIComponent(query || '*');
+    const data = await sbFetch(`/${table}?select=${q}`, { method: 'GET' });
+    return data || [];
+  } catch (e) {
+    console.error(e);
+    lastDbError = e.message || String(e);
+    showStatus('DB error: ' + lastDbError, 'error');
     return [];
   }
-  return data || [];
 }
 
 async function sbDelete(table, id) {
   if (!sbReady) return;
-  const { error } = await sb.from(table).delete().eq('id', id);
-  if (error) {
-    lastDbError = error.message || String(error);
-    showStatus('DB error: ' + error.message, 'error');
-    console.error(error);
+  try {
+    await sbFetch(`/${table}?id=eq.${encodeURIComponent(id)}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
+  } catch (e) {
+    lastDbError = e.message || String(e);
+    showStatus('DB error: ' + lastDbError, 'error');
+    console.error(e);
   }
 }
 
 async function sbUpdate(table, id, data) {
   if (!sbReady) return;
-  await sb.from(table).update(data).eq('id', id);
+  try {
+    await sbFetch(`/${table}?id=eq.${encodeURIComponent(id)}`, { method: 'PATCH', body: data, headers: { Prefer: 'return=minimal' } });
+  } catch (e) {
+    lastDbError = e.message || String(e);
+    showStatus('DB error: ' + lastDbError, 'error');
+    console.error(e);
+  }
 }
 
 // =====================
@@ -1309,7 +1320,7 @@ async function loadAll() {
   if (!exercises.length) {
     // seed defaults
     for (const ex of DEFAULT_EXERCISES) {
-      await sb.from('exercises').insert(ex);
+      await sbFetch('/exercises', { method: 'POST', body: ex, headers: { Prefer: 'return=minimal' } }).catch(() => {});
     }
     exercises = await sbSelect('exercises');
   }
@@ -1568,19 +1579,23 @@ async function saveWorkoutLog() {
     const withoutMember = { ...payload };
     delete withoutMember.member_id;
 
-    const { data: d1, error: e1 } = await sb.from('log_sets').insert(withMember).select();
-    if (!e1) return d1;
-
-    const msg = String(e1.message || '');
-    if (payload.member_id != null && /member_id/i.test(msg) && /(column|schema cache)/i.test(msg)) {
-      const { data: d2, error: e2 } = await sb.from('log_sets').insert(withoutMember).select();
-      if (!e2) return d2;
-      showStatus('DB error: ' + e2.message, 'error');
+    try {
+      await sbFetch('/log_sets', { method: 'POST', body: withMember, headers: { Prefer: 'return=minimal' } });
+      return true;
+    } catch (e1) {
+      const msg = String(e1.message || '');
+      if (payload.member_id != null && /member_id/i.test(msg) && /(column|schema cache|does not exist)/i.test(msg)) {
+        try {
+          await sbFetch('/log_sets', { method: 'POST', body: withoutMember, headers: { Prefer: 'return=minimal' } });
+          return true;
+        } catch (e2) {
+          showStatus('DB error: ' + (e2.message || String(e2)), 'error');
+          return null;
+        }
+      }
+      showStatus('DB error: ' + (e1.message || String(e1)), 'error');
       return null;
     }
-
-    showStatus('DB error: ' + e1.message, 'error');
-    return null;
   }
 
   // Save exercises and sets
@@ -1752,7 +1767,7 @@ function renderSavedPlans() {
 async function deletePlan(id) {
   if (!confirm('Delete this plan?')) return;
   if (sbReady) {
-    await sb.from('plan_exercises').delete().eq('plan_id', id);
+    await sbFetch(`/plan_exercises?plan_id=eq.${encodeURIComponent(id)}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } }).catch(() => {});
     await sbDelete('workout_plans', id);
     workoutPlans = await sbSelect('workout_plans', '*, plan_exercises(*, exercise:exercises(*))');
   } else {
@@ -2371,14 +2386,13 @@ function updateSupabaseStatusUI() {
 async function testSupabase() {
   if (!sbReady) { showStatus('Supabase not connected.', 'error'); return; }
   try {
-    const { count, error: selErr } = await sb.from('members').select('id', { count: 'exact', head: true });
-    if (selErr) throw selErr;
+    // Try select
+    await sbFetch('/members?select=id&limit=1', { method: 'GET' });
     // Try insert (will fail under RLS without policies)
     const testName = 'DB_TEST_' + dayjs().format('HHmmss');
-    const { data: ins, error: insErr } = await sb.from('members').insert({ name: testName, tag: 'temp' }).select();
-    if (insErr) throw insErr;
+    const ins = await sbFetch('/members?select=*', { method: 'POST', body: { name: testName, tag: 'temp' }, headers: { Prefer: 'return=representation' } });
     const newId = ins?.[0]?.id;
-    showStatus(`Supabase OK. members count=${count ?? '—'}. Inserted test member id=${newId}.`, 'success');
+    showStatus(`Supabase OK. Inserted test member id=${newId || '—'}.`, 'success');
   } catch (e) {
     const msg = e?.message || String(e);
     lastDbError = msg;
@@ -2504,17 +2518,22 @@ async function syncLocalToSupabase() {
   // Helper: attempt an upsert and detect missing client_uid columns.
   async function upsertByClientUid(table, rows) {
     if (!rows.length) return [];
-    const { data, error } = await sb.from(table).upsert(rows, { onConflict: 'client_uid' }).select();
-    if (error) {
+    try {
+      const data = await sbFetch(`/${table}?on_conflict=client_uid&select=*`, {
+        method: 'POST',
+        body: rows,
+        headers: { Prefer: 'resolution=merge-duplicates,return=representation' }
+      });
+      return data || [];
+    } catch (error) {
       const msg = String(error.message || '');
       if (/client_uid/i.test(msg) && /(column|schema cache|on conflict)/i.test(msg)) {
         showStatus(`Supabase needs a client_uid column on ${table}. Run the SQL migration.`, 'error');
       } else {
-        showStatus('DB error: ' + error.message, 'error');
+        showStatus('DB error: ' + msg, 'error');
       }
       throw error;
     }
-    return data || [];
   }
 
   // Upsert members/exercises first so we can map ids
@@ -2532,15 +2551,17 @@ async function syncLocalToSupabase() {
     const withMember = { ...payload };
     const withoutMember = { ...payload };
     delete withoutMember.member_id;
-    const { error: e1 } = await sb.from('log_sets').insert(withMember);
-    if (!e1) return true;
-    const msg = String(e1.message || '');
-    if (payload.member_id != null && /member_id/i.test(msg) && /(column|schema cache)/i.test(msg)) {
-      const { error: e2 } = await sb.from('log_sets').insert(withoutMember);
-      if (!e2) return true;
-      throw e2;
+    try {
+      await sbFetch('/log_sets', { method: 'POST', body: withMember, headers: { Prefer: 'return=minimal' } });
+      return true;
+    } catch (e1) {
+      const msg = String(e1.message || '');
+      if (payload.member_id != null && /member_id/i.test(msg) && /(column|schema cache|does not exist)/i.test(msg)) {
+        await sbFetch('/log_sets', { method: 'POST', body: withoutMember, headers: { Prefer: 'return=minimal' } });
+        return true;
+      }
+      throw e1;
     }
-    throw e1;
   }
 
   // Sync workout logs (treat each log as atomic; skip if already exists)
@@ -2548,24 +2569,28 @@ async function syncLocalToSupabase() {
     if (!w?.date) continue;
     ensureClientUid(w, 'wl');
 
-    const { data: existing, error: exErr } = await sb.from('workout_logs').select('id').eq('client_uid', w.client_uid).limit(1);
-    if (exErr) {
+    let existing = [];
+    try {
+      existing = await sbFetch(`/workout_logs?select=id&client_uid=eq.${encodeURIComponent(w.client_uid)}&limit=1`, { method: 'GET' });
+    } catch (exErr) {
       const msg = String(exErr.message || '');
       if (/client_uid/i.test(msg) && /(column|schema cache)/i.test(msg)) {
         showStatus('Supabase needs client_uid on workout_logs. Run the SQL migration.', 'error');
-        throw exErr;
       }
       throw exErr;
     }
     if (existing && existing.length) continue;
 
-    const { data: insertedLogs, error: insErr } = await sb.from('workout_logs').insert({
-      client_uid: w.client_uid,
-      date: w.date,
-      name: w.name || null,
-      notes: w.notes || null
-    }).select();
-    if (insErr) throw insErr;
+    const insertedLogs = await sbFetch('/workout_logs?select=*', {
+      method: 'POST',
+      body: {
+        client_uid: w.client_uid,
+        date: w.date,
+        name: w.name || null,
+        notes: w.notes || null
+      },
+      headers: { Prefer: 'return=representation' }
+    });
     const logId = insertedLogs?.[0]?.id;
     if (!logId) continue;
 
@@ -2576,7 +2601,7 @@ async function syncLocalToSupabase() {
       let memberId = localM?.client_uid ? (memberIdByUid.get(localM.client_uid) || null) : null;
       if (!memberId && localM?.name) memberId = memberIdByUid.get(`name:${localM.name.toLowerCase()}`) || null;
       if (!memberId) continue;
-      await sb.from('log_members').insert({ log_id: logId, member_id: memberId });
+      await sbFetch('/log_members', { method: 'POST', body: { log_id: logId, member_id: memberId }, headers: { Prefer: 'return=minimal' } });
     }
 
     // Exercises + sets
@@ -2588,8 +2613,11 @@ async function syncLocalToSupabase() {
       if (!exerciseId && localEx?.name) exerciseId = exerciseIdByUid.get(`name:${localEx.name.toLowerCase()}`);
       if (!exerciseId) continue;
 
-      const { data: exRows, error: exInsErr } = await sb.from('log_exercises').insert({ log_id: logId, exercise_id: exerciseId }).select();
-      if (exInsErr) throw exInsErr;
+      const exRows = await sbFetch('/log_exercises?select=*', {
+        method: 'POST',
+        body: { log_id: logId, exercise_id: exerciseId },
+        headers: { Prefer: 'return=representation' }
+      });
       const logExerciseId = exRows?.[0]?.id;
       if (!logExerciseId) continue;
 
@@ -2618,23 +2646,27 @@ async function syncLocalToSupabase() {
     if (!p?.date) continue;
     ensureClientUid(p, 'wp');
 
-    const { data: existing, error: exErr } = await sb.from('workout_plans').select('id').eq('client_uid', p.client_uid).limit(1);
-    if (exErr) {
+    let existing = [];
+    try {
+      existing = await sbFetch(`/workout_plans?select=id&client_uid=eq.${encodeURIComponent(p.client_uid)}&limit=1`, { method: 'GET' });
+    } catch (exErr) {
       const msg = String(exErr.message || '');
       if (/client_uid/i.test(msg) && /(column|schema cache)/i.test(msg)) {
         showStatus('Supabase needs client_uid on workout_plans. Run the SQL migration.', 'error');
-        throw exErr;
       }
       throw exErr;
     }
     if (existing && existing.length) continue;
 
-    const { data: insertedPlans, error: insErr } = await sb.from('workout_plans').insert({
-      client_uid: p.client_uid,
-      date: p.date,
-      name: p.name || null
-    }).select();
-    if (insErr) throw insErr;
+    const insertedPlans = await sbFetch('/workout_plans?select=*', {
+      method: 'POST',
+      body: {
+        client_uid: p.client_uid,
+        date: p.date,
+        name: p.name || null
+      },
+      headers: { Prefer: 'return=representation' }
+    });
     const planId = insertedPlans?.[0]?.id;
     if (!planId) continue;
 
@@ -2648,14 +2680,14 @@ async function syncLocalToSupabase() {
       if (!exerciseId && localEx?.name) exerciseId = exerciseIdByUid.get(`name:${localEx.name.toLowerCase()}`);
       if (!exerciseId) continue;
 
-      await sb.from('plan_exercises').insert({
+      await sbFetch('/plan_exercises', { method: 'POST', body: {
         plan_id: planId,
         exercise_id: exerciseId,
         target_sets: pe.sets ?? pe.target_sets ?? null,
         target_reps: pe.reps ?? pe.target_reps ?? null,
         target_weight: pe.weight ?? pe.target_weight ?? null,
         order_index: pe.order_index ?? order++
-      });
+      }, headers: { Prefer: 'return=minimal' } });
     }
   }
 
