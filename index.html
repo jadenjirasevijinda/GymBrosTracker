@@ -22,9 +22,12 @@
     --green: #47ff8e;
     --blue: #47b8ff;
     --orange: #ff8c47;
+    color-scheme: dark;
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { -webkit-text-size-adjust: 100%; }
 
   body {
     background: var(--bg);
@@ -80,6 +83,7 @@
     cursor: pointer;
     transition: all 0.15s;
     text-transform: uppercase;
+    touch-action: manipulation;
   }
 
   nav button:hover { color: var(--text); border-color: var(--border2); }
@@ -521,12 +525,83 @@
 
   /* Responsive */
   @media (max-width: 700px) {
-    header { padding: 14px 16px; }
-    main { padding: 20px 16px; }
+    header {
+      padding: 12px 16px;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 10px;
+    }
+
+    .logo { font-size: 24px; }
+
+    nav {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+      gap: 8px;
+      padding-bottom: 6px;
+    }
+    nav::-webkit-scrollbar { display: none; }
+
+    nav button {
+      flex: 0 0 auto;
+      padding: 10px 12px;
+      font-size: 11px;
+      min-height: 40px;
+      border-color: var(--border);
+      border-radius: 999px;
+      background: rgba(255,255,255,0.02);
+    }
+
+    main { padding: 18px 16px; }
     .grid-2, .grid-3 { grid-template-columns: 1fr; }
-    nav button { padding: 6px 10px; font-size: 10px; }
     .exercise-slot { grid-template-columns: 24px 1fr auto; }
     .slot-inputs { flex-wrap: wrap; }
+
+    /* Prevent iOS zoom-on-focus (override inline font sizes too) */
+    input, select, textarea { font-size: 16px; }
+    .set-row input, .set-row select,
+    .slot-inputs input, .slot-inputs select,
+    #history-search { font-size: 16px !important; }
+
+    .set-row {
+      grid-template-columns: 24px 1fr 1fr 0.9fr auto;
+      gap: 6px;
+    }
+
+    .slot-inputs input {
+      width: 110px;
+      flex: 1 1 110px;
+    }
+    .slot-inputs select { flex: 1 1 220px; }
+
+    /* Make toast usable on small screens + notches */
+    #status-bar {
+      left: 16px;
+      right: 16px;
+      bottom: calc(16px + env(safe-area-inset-bottom));
+      max-width: none;
+    }
+
+    .modal-overlay {
+      padding:
+        calc(16px + env(safe-area-inset-top))
+        16px
+        calc(16px + env(safe-area-inset-bottom))
+        16px;
+    }
+
+    .section-title { font-size: 34px; }
+    .section-header { gap: 12px; flex-wrap: wrap; }
+    .btn { min-height: 44px; }
+  }
+
+  @media (max-width: 420px) {
+    main { padding: 16px 14px; }
+    .section-title { font-size: 30px; }
+    .card { padding: 16px; }
+    .log-header { padding: 14px 16px; }
+    td, th { padding-left: 10px; padding-right: 10px; }
   }
 </style>
 </head>
