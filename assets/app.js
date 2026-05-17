@@ -196,32 +196,8 @@ let workoutPlans = [];
 let calMonth = dayjs();
 
 // Default exercises
-const DEFAULT_EXERCISES = [
-  { name: 'Light Cardio Warmup', category: 'warmup' },
-  { name: 'Dynamic Stretching', category: 'warmup' },
-  { name: 'Foam Rolling', category: 'warmup' },
-  { name: 'Bench Press', category: 'chest' },
-  { name: 'Incline Dumbbell Press', category: 'chest' },
-  { name: 'Cable Flyes', category: 'chest' },
-  { name: 'Pull-Ups', category: 'back' },
-  { name: 'Barbell Row', category: 'back' },
-  { name: 'Lat Pulldown', category: 'back' },
-  { name: 'Squat', category: 'legs' },
-  { name: 'Deadlift', category: 'legs' },
-  { name: 'Bulgarian Split Squat', category: 'legs' },
-  { name: 'Leg Press', category: 'legs' },
-  { name: 'Box Jump', category: 'legs' },
-  { name: 'Shoulder Press', category: 'shoulders' },
-  { name: 'Lateral Raises', category: 'shoulders' },
-  { name: 'Face Pulls', category: 'shoulders' },
-  { name: 'Bicep Curls', category: 'arms' },
-  { name: 'Tricep Dips', category: 'arms' },
-  { name: 'Skull Crushers', category: 'arms' },
-  { name: 'Plank', category: 'core' },
-  { name: 'Ab Wheel Rollout', category: 'core' },
-  { name: 'Running', category: 'cardio' },
-  { name: 'Rowing Machine', category: 'cardio' },
-];
+// Intentionally empty to avoid clutter — add exercises manually as you go.
+const DEFAULT_EXERCISES = [];
 
 function getExerciseOptions(selectedId) {
   const grouped = {};
@@ -250,6 +226,16 @@ function memberNameForId(id) {
   if (id == null || id === '') return '';
   const m = members.find(mm => mm.id == id);
   return m ? m.name : '';
+}
+
+function normalizeName(s) {
+  return String(s || '').trim().toLowerCase();
+}
+
+function exerciseNameForId(id) {
+  if (id == null || id === '') return '';
+  const e = exercises.find(ee => ee.id == id);
+  return e ? e.name : '';
 }
 
 // =====================
@@ -297,7 +283,7 @@ function showView(id) {
 async function loadAll() {
   if (!sbReady) {
     // use local state only (demo mode)
-    exercises = DEFAULT_EXERCISES.map((e, i) => ({ ...e, id: i + 1 }));
+    exercises = [];
     renderDashboard();
     initLog();
     renderMembers();
@@ -308,13 +294,7 @@ async function loadAll() {
 
   members = await sbSelect('members');
   exercises = await sbSelect('exercises');
-  if (!exercises.length) {
-    // seed defaults
-    for (const ex of DEFAULT_EXERCISES) {
-      await sbFetch('/exercises', { method: 'POST', body: ex, headers: { Prefer: 'return=minimal' } }).catch(() => {});
-    }
-    exercises = await sbSelect('exercises');
-  }
+  // No auto-seeding exercises (keep library clean; add by hand).
   workoutLogs = await sbSelect('workout_logs', '*, log_exercises(*, log_sets(*), exercise:exercises(*)), log_members(*, member:members(*))');
   workoutPlans = await sbSelect('workout_plans', '*, plan_exercises(*, exercise:exercises(*))');
 
@@ -405,6 +385,7 @@ function changeMonth(dir) {
 // =====================
 let logExercises = [];
 let selectedMembers = [];
+let exercisePickerCtx = null; // { kind: 'log'|'plan', idx: number }
 
 function initLog() {
   if (!document.getElementById('log-date')) return;
@@ -454,6 +435,170 @@ function addLogExercise() {
   renderLogExercises();
 }
 
+function addLogExerciseAndPick() {
+  const idx = logExercises.length;
+  addLogExercise();
+  openExercisePicker(idx);
+  setTimeout(() => document.getElementById('picker-new-ex-name')?.focus(), 60);
+}
+
+function openExercisePicker(exIdx) { openExercisePickerFor('log', exIdx); }
+function openPlanExercisePicker(slotIdx) { openExercisePickerFor('plan', slotIdx); }
+
+function openExercisePickerFor(kind, idx) {
+  exercisePickerCtx = { kind, idx };
+  renderExercisePicker();
+  openModal('modal-exercise-picker');
+  setTimeout(() => document.getElementById('exercise-picker-search')?.focus(), 50);
+}
+
+function closeExercisePicker() {
+  exercisePickerCtx = null;
+  closeModal('modal-exercise-picker');
+}
+
+function renderExercisePicker() {
+  const body = document.getElementById('exercise-picker-body');
+  if (!body) return;
+
+  let currentId = null;
+  if (exercisePickerCtx?.kind === 'log' && logExercises[exercisePickerCtx.idx]) currentId = logExercises[exercisePickerCtx.idx].exercise_id;
+  if (exercisePickerCtx?.kind === 'plan' && planSlots[exercisePickerCtx.idx]) currentId = planSlots[exercisePickerCtx.idx].exercise_id;
+
+  const alreadyBuilt = !!document.getElementById('exercise-picker-search');
+  if (!alreadyBuilt) {
+    body.innerHTML = `
+      <div class="picker-search">
+        <div class="form-group" style="margin-bottom:0">
+          <label>Search</label>
+          <input id="exercise-picker-search" type="search" placeholder="Type to filter…"
+            oninput="updateExercisePickerList()" autocomplete="off" />
+        </div>
+      </div>
+
+      <div class="picker-add-box">
+        <div class="card-label">Add New Exercise</div>
+        <div class="grid-2" style="margin-top:10px">
+          <div class="form-group" style="margin-bottom:0">
+            <label>New Exercise Name</label>
+            <input id="picker-new-ex-name" type="text" placeholder="e.g. Seated Cable Row" />
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label>Category</label>
+            <select id="picker-new-ex-cat">
+              <option value="warmup">warmup</option>
+              <option value="chest">chest</option>
+              <option value="back">back</option>
+              <option value="legs">legs</option>
+              <option value="shoulders">shoulders</option>
+              <option value="arms">arms</option>
+              <option value="core">core</option>
+              <option value="cardio">cardio</option>
+              <option value="other" selected>other</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
+          <button class="btn btn-primary" onclick="addNewExerciseFromPicker()">+ ADD & SELECT</button>
+          <button class="btn btn-secondary" onclick="closeExercisePicker()">CLOSE</button>
+        </div>
+        <div style="margin-top:10px;color:var(--text3);font-size:11px;font-family:'IBM Plex Mono',monospace">
+          Tip: adding here updates your exercise library for everyone.
+        </div>
+      </div>
+
+      <div style="margin-top:14px">
+        <div class="card-label">Or Pick Existing</div>
+        <div id="exercise-picker-list" class="picker-list" style="margin-top:10px"></div>
+      </div>
+    `;
+  }
+
+  updateExercisePickerList(currentId);
+}
+
+function updateExercisePickerList(forcedCurrentId = null) {
+  const listEl = document.getElementById('exercise-picker-list');
+  if (!listEl) return;
+  const currentId = forcedCurrentId != null
+    ? forcedCurrentId
+    : (() => {
+        if (exercisePickerCtx?.kind === 'log' && logExercises[exercisePickerCtx.idx]) return logExercises[exercisePickerCtx.idx].exercise_id;
+        if (exercisePickerCtx?.kind === 'plan' && planSlots[exercisePickerCtx.idx]) return planSlots[exercisePickerCtx.idx].exercise_id;
+        return null;
+      })();
+
+  const searchVal = normalizeName(document.getElementById('exercise-picker-search')?.value || '');
+  const filtered = exercises
+    .slice()
+    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' }))
+    .filter(e => !searchVal || normalizeName(e.name).includes(searchVal));
+
+  listEl.innerHTML = `
+    ${!filtered.length ? `<div style="color:var(--text3);font-size:12px;font-family:'IBM Plex Mono',monospace;padding:8px 0">No matches.</div>` : ''}
+    ${filtered.map(e => `
+      <button class="picker-item" onclick="chooseExerciseForLog(${e.id})" title="Select">
+        <div>
+          <div class="name">${e.name}</div>
+          <div class="meta">${(e.category || 'other')}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          ${String(e.id) === String(currentId) ? `<span class="badge badge-yellow">Selected</span>` : ``}
+          <span style="color:var(--text3);font-size:18px">›</span>
+        </div>
+      </button>
+    `).join('')}
+  `;
+}
+
+function chooseExerciseForLog(exerciseId) {
+  if (!exercisePickerCtx) return;
+  if (exercisePickerCtx.kind === 'log') {
+    if (!logExercises[exercisePickerCtx.idx]) return;
+    logExercises[exercisePickerCtx.idx].exercise_id = exerciseId;
+    renderLogExercises();
+  } else if (exercisePickerCtx.kind === 'plan') {
+    if (!planSlots[exercisePickerCtx.idx]) return;
+    planSlots[exercisePickerCtx.idx].exercise_id = exerciseId;
+    renderPlanSlots();
+  }
+  closeExercisePicker();
+}
+
+async function addNewExerciseFromPicker() {
+  const name = document.getElementById('picker-new-ex-name')?.value || '';
+  const category = document.getElementById('picker-new-ex-cat')?.value || 'other';
+  const clean = name.trim();
+  if (!clean) { showStatus('Enter an exercise name!', 'error'); return; }
+
+  // If it already exists (case-insensitive), just select it.
+  const existing = exercises.find(e => normalizeName(e.name) === normalizeName(clean));
+  if (existing) {
+    chooseExerciseForLog(existing.id);
+    return;
+  }
+
+  try {
+    let newEx = null;
+    if (sbReady) {
+      const res = await sbInsert('exercises', { name: clean, category });
+      if (!res) throw new Error('Failed to insert exercise');
+      newEx = res[0];
+      exercises = await sbSelect('exercises');
+    } else {
+      newEx = { id: Date.now(), name: clean, category };
+      ensureClientUid(newEx, 'e');
+      exercises.push(newEx);
+      saveAppData();
+    }
+    showStatus(`"${clean}" added.`, 'success');
+    chooseExerciseForLog(newEx.id);
+  } catch (e) {
+    showStatus('Failed to add exercise: ' + (e.message || String(e)), 'error');
+    console.error(e);
+  }
+}
+
 function renderLogExercises() {
   const el = document.getElementById('log-exercises');
   el.innerHTML = logExercises.map((ex, i) => `
@@ -461,9 +606,10 @@ function renderLogExercises() {
       <div style="padding:14px 16px">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
           <span style="font-family:'Bebas Neue',sans-serif;font-size:22px;color:var(--text3)">${i+1}</span>
-          <select style="flex:1" onchange="setLogExercise(${i}, this.value)">
-            ${getExerciseOptions(ex.exercise_id)}
-          </select>
+          <button class="btn btn-secondary" style="flex:1;justify-content:space-between;gap:12px;text-transform:none;font-family:'IBM Plex Sans',sans-serif;font-weight:600;letter-spacing:0;padding:10px 12px" onclick="openExercisePicker(${i})" title="Pick exercise">
+            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${exerciseNameForId(ex.exercise_id) || 'Pick an exercise'}</span>
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text3);letter-spacing:1px;text-transform:uppercase">change</span>
+          </button>
           <button onclick="removeLogExercise(${i})" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:18px;padding:4px" title="Remove">✕</button>
         </div>
         ${(!selectedMembers.length)
@@ -647,8 +793,15 @@ function clearLog() {
 let planSlots = [];
 
 function addPlanSlot() {
-  planSlots.push({ exercise_id: exercises[0]?.id || null, sets: 3, reps: '8-12', weight: '', notes: '' });
+  planSlots.push({ exercise_id: exercises[0]?.id || null, sets: '', reps: '', weight: '', notes: '' });
   renderPlanSlots();
+}
+
+function addPlanSlotAndPick() {
+  const idx = planSlots.length;
+  addPlanSlot();
+  openPlanExercisePicker(idx);
+  setTimeout(() => document.getElementById('picker-new-ex-name')?.focus(), 60);
 }
 
 function renderPlanSlots() {
@@ -662,9 +815,10 @@ function renderPlanSlots() {
     <div class="exercise-slot">
       <div class="slot-num">${i+1}</div>
       <div class="slot-inputs" style="flex:1">
-        <select onchange="setPlanExercise(${i},this.value)" style="flex:1">
-          ${getExerciseOptions(slot.exercise_id)}
-        </select>
+        <button class="btn btn-secondary" style="flex:1;justify-content:space-between;gap:12px;text-transform:none;font-family:'IBM Plex Sans',sans-serif;font-weight:600;letter-spacing:0;padding:10px 12px" onclick="openPlanExercisePicker(${i})" title="Pick exercise">
+          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${exerciseNameForId(slot.exercise_id) || 'Pick an exercise'}</span>
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text3);letter-spacing:1px;text-transform:uppercase">change</span>
+        </button>
         <input type="number" placeholder="Sets" value="${slot.sets}" min="1" onchange="setPlanField(${i},'sets',this.value)" title="Sets" style="width:70px" />
         <input type="text" placeholder="Reps" value="${slot.reps}" onchange="setPlanField(${i},'reps',this.value)" title="Rep target" style="width:80px" />
         <input type="text" placeholder="Target wt" value="${slot.weight}" onchange="setPlanField(${i},'weight',this.value)" title="Target weight" style="width:90px" />
@@ -818,7 +972,7 @@ function loadPlanToLogDirect(planId) {
     selectedMembers = members.map(m => m.id);
   }
   logExercises = exs.map(e => {
-    const setCount = parseInt(e.target_sets) || 3;
+    const setCount = Math.max(1, parseInt(e.target_sets) || 1);
     const reps = e.target_reps || '';
     const weight = e.target_weight || '';
     return {
@@ -983,9 +1137,36 @@ async function saveMember() {
 
   try {
     if (sbReady) {
+      // Prevent duplicates across devices: treat "same name" (case-insensitive) as the same member.
+      const existing = await sbFetch(`/members?select=id,name,tag,client_uid&name=ilike.${encodeURIComponent(name)}&limit=1`, { method: 'GET' }).catch(() => []);
+      if (existing && existing.length) {
+        const found = existing[0];
+        if (tag && !found.tag) {
+          await sbUpdate('members', found.id, { tag }).catch(() => {});
+        }
+        members = await sbSelect('members');
+        closeModal('modal-add-member');
+        document.getElementById('member-name').value = '';
+        document.getElementById('member-tag').value = '';
+        renderMembers();
+        initLog();
+        showStatus(`${found.name} already exists — selected existing.`, 'success');
+        return;
+      }
+
       const res = await sbInsert('members', { name, tag: tag || null });
       if (!res) {
         // Supabase insert can fail (RLS/offline). Save locally so the user doesn't lose data.
+        const alreadyLocal = members.find(m => normalizeName(m.name) === normalizeName(name));
+        if (alreadyLocal) {
+          closeModal('modal-add-member');
+          document.getElementById('member-name').value = '';
+          document.getElementById('member-tag').value = '';
+          renderMembers();
+          initLog();
+          showStatus(`${alreadyLocal.name} already exists locally.`, 'success');
+          return;
+        }
         const localMember = { id: Date.now(), name, tag };
         ensureClientUid(localMember, 'm');
         members.push(localMember);
@@ -1000,6 +1181,16 @@ async function saveMember() {
       }
       members = await sbSelect('members');
     } else {
+      const alreadyLocal = members.find(m => normalizeName(m.name) === normalizeName(name));
+      if (alreadyLocal) {
+        closeModal('modal-add-member');
+        document.getElementById('member-name').value = '';
+        document.getElementById('member-tag').value = '';
+        renderMembers();
+        initLog();
+        showStatus(`${alreadyLocal.name} already exists.`, 'success');
+        return;
+      }
       const localMember = { id: Date.now(), name, tag };
       ensureClientUid(localMember, 'm');
       members.push(localMember);
@@ -1551,13 +1742,93 @@ async function syncLocalToSupabase() {
   workoutPlans.forEach(p => ensureClientUid(p, 'wp'));
   saveAppData(true);
 
+  // Prevent duplicate rows across devices by "adopting" existing remote rows with the same name.
+  // This keeps a stable id on Supabase and avoids creating a second row when client_uid differs.
+  const remoteMembersAll = await sbSelect('members', 'id,name,tag,client_uid');
+  const remoteExercisesAll = await sbSelect('exercises', 'id,name,category,client_uid');
+
+  const remoteMemberByName = new Map();
+  for (const rm of remoteMembersAll) {
+    const key = normalizeName(rm?.name);
+    if (key && !remoteMemberByName.has(key)) remoteMemberByName.set(key, rm);
+  }
+  const remoteMemberByUid = new Map(remoteMembersAll.filter(r => r?.client_uid).map(r => [r.client_uid, r]));
+
+  const remoteExerciseByName = new Map();
+  for (const re of remoteExercisesAll) {
+    const key = normalizeName(re?.name);
+    if (key && !remoteExerciseByName.has(key)) remoteExerciseByName.set(key, re);
+  }
+  const remoteExerciseByUid = new Map(remoteExercisesAll.filter(r => r?.client_uid).map(r => [r.client_uid, r]));
+
+  for (const m of members) {
+    const key = normalizeName(m?.name);
+    const rm = key ? remoteMemberByName.get(key) : null;
+    if (!rm) continue;
+    if (rm.client_uid) {
+      m.client_uid = rm.client_uid;
+    } else if (m.client_uid) {
+      // Only set remote client_uid if it won't collide with another remote row.
+      if (!remoteMemberByUid.has(m.client_uid)) {
+        await sbUpdate('members', rm.id, { client_uid: m.client_uid }).catch(() => {});
+        rm.client_uid = m.client_uid;
+        remoteMemberByUid.set(m.client_uid, rm);
+      } else {
+        // Another row already owns this uid; adopt that uid locally instead.
+        const owner = remoteMemberByUid.get(m.client_uid);
+        if (owner?.client_uid) m.client_uid = owner.client_uid;
+      }
+    }
+  }
+
+  for (const e of exercises) {
+    const key = normalizeName(e?.name);
+    const re = key ? remoteExerciseByName.get(key) : null;
+    if (!re) continue;
+    if (re.client_uid) {
+      e.client_uid = re.client_uid;
+    } else if (e.client_uid) {
+      if (!remoteExerciseByUid.has(e.client_uid)) {
+        await sbUpdate('exercises', re.id, { client_uid: e.client_uid }).catch(() => {});
+        re.client_uid = e.client_uid;
+        remoteExerciseByUid.set(e.client_uid, re);
+      } else {
+        const owner = remoteExerciseByUid.get(e.client_uid);
+        if (owner?.client_uid) e.client_uid = owner.client_uid;
+      }
+    }
+  }
+
+  // De-dupe local arrays by client_uid so we don't upsert duplicates.
+  const uniqByUid = (arr) => {
+    const seen = new Map();
+    for (const item of arr) {
+      const uid = item?.client_uid;
+      if (!uid) continue;
+      if (!seen.has(uid)) seen.set(uid, item);
+    }
+    return Array.from(seen.values());
+  };
+  members = uniqByUid(members);
+  exercises = uniqByUid(exercises);
+
   // Helper: attempt an upsert and detect missing client_uid columns.
   async function upsertByClientUid(table, rows) {
     if (!rows.length) return [];
+    // Extra guard: avoid sending duplicate client_uids in one request (can trigger unique violations).
+    const uniq = [];
+    const seen = new Set();
+    for (const r of rows) {
+      const uid = r?.client_uid;
+      if (!uid) continue;
+      if (seen.has(uid)) continue;
+      seen.add(uid);
+      uniq.push(r);
+    }
     try {
       const data = await sbFetch(`/${table}?on_conflict=client_uid&select=*`, {
         method: 'POST',
-        body: rows,
+        body: uniq,
         headers: { Prefer: 'resolution=merge-duplicates,return=representation' }
       });
       return data || [];
@@ -1565,6 +1836,8 @@ async function syncLocalToSupabase() {
       const msg = String(error.message || '');
       if (/client_uid/i.test(msg) && /(column|schema cache|on conflict)/i.test(msg)) {
         showStatus(`Supabase needs a client_uid column on ${table}. Run the SQL migration.`, 'error');
+      } else if (/duplicate key value violates unique constraint/i.test(msg) && /client_uid/i.test(msg)) {
+        showStatus(`DB error: duplicate client_uid while syncing ${table}. Try refresh; if it persists, clear site storage on one device.`, 'error');
       } else {
         showStatus('DB error: ' + msg, 'error');
       }
@@ -1763,7 +2036,7 @@ window.addEventListener('load', () => {
   } else {
     // Load without Supabase (demo mode)
     loadAppData();
-    if (!exercises.length) exercises = DEFAULT_EXERCISES.map((e, i) => ({ ...e, id: i + 1 }));
+    // Don't auto-seed exercises
     if (planDateEl) {
       addPlanSlot(); // start with one slot (plan page only)
       renderPlanSlots();

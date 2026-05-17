@@ -61,7 +61,10 @@
 
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
       <div class="section-title" style="font-size:24px">Exercises</div>
-      <button class="btn btn-secondary btn-sm" onclick="addLogExercise()">+ ADD EXERCISE</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+        <button class="btn btn-secondary btn-sm" onclick="addLogExercise()">+ ADD EXERCISE</button>
+        <button class="btn btn-secondary btn-sm" onclick="addLogExerciseAndPick()">＋ NEW EXERCISE</button>
+      </div>
     </div>
 
     <div id="log-exercises"></div>
@@ -119,6 +122,15 @@
     <div class="modal-title">USE THIS PLAN</div>
     <p style="color:var(--text2);font-size:13px;margin-bottom:16px">Load this plan into the workout logger to record actual weights & reps.</p>
     <button class="btn btn-primary" onclick="loadPlanToLog()">LOAD INTO LOG</button>
+  </div>
+</div>
+
+<!-- Exercise Picker (mobile-friendly) -->
+<div class="modal-overlay" id="modal-exercise-picker">
+  <div class="modal" style="max-width:720px">
+    <button class="modal-close" onclick="closeExercisePicker()">✕</button>
+    <div class="modal-title">PICK EXERCISE</div>
+    <div id="exercise-picker-body"></div>
   </div>
 </div>
 

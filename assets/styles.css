@@ -654,6 +654,17 @@
     .section-title { font-size: 34px; }
     .section-header { gap: 12px; flex-wrap: wrap; }
     .btn { min-height: 44px; }
+
+    /* Chips are easier as a horizontal scroller on phones */
+    .member-chips {
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      padding-bottom: 6px;
+      scrollbar-width: none;
+    }
+    .member-chips::-webkit-scrollbar { display: none; }
+    .member-chip { flex: 0 0 auto; }
   }
 
   @media (max-width: 420px) {
@@ -662,4 +673,44 @@
     .card { padding: 16px; }
     .log-header { padding: 14px 16px; }
     td, th { padding-left: 10px; padding-right: 10px; }
+  }
+
+  /* Exercise picker (mobile-friendly) */
+  .picker-search {
+    position: sticky;
+    top: 0;
+    background: var(--surface);
+    padding-bottom: 10px;
+    margin-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .picker-list { display: flex; flex-direction: column; gap: 8px; }
+
+  .picker-item {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 12px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border2);
+    background: var(--surface2);
+    cursor: pointer;
+    text-align: left;
+    touch-action: manipulation;
+  }
+
+  .picker-item:hover { border-color: var(--accent); }
+
+  .picker-item .name { font-weight: 600; font-size: 14px; }
+  .picker-item .meta { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--text3); letter-spacing: 1px; text-transform: uppercase; }
+
+  .picker-add-box {
+    border: 1px solid var(--border2);
+    border-radius: 8px;
+    padding: 14px;
+    background: var(--surface2);
+    margin-top: 14px;
   }
