@@ -7,6 +7,8 @@ let pendingPlanForLog = null;
 let lastDbError = '';
 let lastSupabaseLoadError = '';
 let lastSupabaseSourceTried = '';
+let syncInFlight = null;
+let lastSyncAtMs = 0;
 
 // =====================
 //   EMBEDDED SUPABASE CONFIG
@@ -87,7 +89,7 @@ function initSupabase(useEmbedded = false) {
     sbReady = true;
     showStatus('Supabase connected! ✓', 'success');
     return loadAll().then(() => {
-      syncLocalToSupabase().catch(() => {});
+      syncLocalToSupabase({ showToast: true }).catch(() => {});
     });
   }).then(() => {
     updateSupabaseStatusUI();
@@ -1338,7 +1340,7 @@ async function refreshApp() {
   try {
     const timeoutMs = 4000;
     await Promise.race([
-      syncLocalToSupabase(),
+      syncLocalToSupabase({ showToast: true, force: true }),
       new Promise((_, reject) => setTimeout(() => reject(new Error('sync timeout')), timeoutMs))
     ]);
     doReload();
@@ -1728,16 +1730,24 @@ function toggleQuickTimer() {
 // =====================
 //   OFFLINE → SUPABASE SYNC
 // =====================
-async function syncLocalToSupabase({ refreshAfter = true } = {}) {
+async function syncLocalToSupabase({ refreshAfter = true, showToast = false, force = false } = {}) {
   if (!sbReady) return;
 
+  // Avoid accidental repeated sync loops (e.g. multiple triggers close together).
+  const now = Date.now();
+  if (!force) {
+    if (syncInFlight) return syncInFlight;
+    if (now - lastSyncAtMs < 15000) return; // 15s cooldown
+  }
+
+  const run = (async () => {
   // Pull any offline cache (even while connected) so we can upload it.
   loadAppData();
 
   const hasLocal = (members?.length || exercises?.length || workoutLogs?.length || workoutPlans?.length);
   if (!hasLocal) return;
 
-  showStatus('Syncing local data to Supabase...', 'success');
+  if (showToast) showStatus('Syncing local data to Supabase...', 'success');
 
   // Ensure client_uids exist
   members.forEach(m => ensureClientUid(m, 'm'));
@@ -2005,10 +2015,15 @@ async function syncLocalToSupabase({ refreshAfter = true } = {}) {
   }
 
   // Finally refresh local UI from Supabase (optional)
-  if (refreshAfter) {
-    await loadAll();
-  }
-  showStatus('Sync complete.', 'success');
+  if (refreshAfter) await loadAll();
+  if (showToast) showStatus('Sync complete.', 'success');
+  })();
+
+  syncInFlight = run.finally(() => {
+    syncInFlight = null;
+    lastSyncAtMs = Date.now();
+  });
+  return syncInFlight;
 }
 
 // =====================
