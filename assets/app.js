@@ -772,6 +772,8 @@ async function saveWorkoutLog() {
     showStatus('Workout saved! 💪', 'success');
     clearLog();
     renderDashboard();
+    // Only push any offline cache if present; don't re-pull everything (avoid UI jump).
+    syncLocalToSupabase({ refreshAfter: false }).catch(() => {});
   } catch (e) {
     showStatus('Failed to save: ' + (e.message || String(e)), 'error');
     console.error(e);
@@ -886,6 +888,8 @@ async function savePlan() {
     renderPlanSlots();
     renderSavedPlans();
     renderCalendar();
+    // Only push any offline cache if present; don't re-pull everything (avoid UI jump).
+    syncLocalToSupabase({ refreshAfter: false }).catch(() => {});
   } catch (e) {
     showStatus('Failed to save plan: ' + (e.message || String(e)), 'error');
     console.error(e);
@@ -1724,7 +1728,7 @@ function toggleQuickTimer() {
 // =====================
 //   OFFLINE → SUPABASE SYNC
 // =====================
-async function syncLocalToSupabase() {
+async function syncLocalToSupabase({ refreshAfter = true } = {}) {
   if (!sbReady) return;
 
   // Pull any offline cache (even while connected) so we can upload it.
@@ -2000,8 +2004,10 @@ async function syncLocalToSupabase() {
     }
   }
 
-  // Finally refresh local UI from Supabase
-  await loadAll();
+  // Finally refresh local UI from Supabase (optional)
+  if (refreshAfter) {
+    await loadAll();
+  }
   showStatus('Sync complete.', 'success');
 }
 
